@@ -1,0 +1,14 @@
+Sample input file for PB calculation
+This input file is meant to show only that gmx_MMPBSA works. Although, we tried to use the input files as recommended in the
+Amber manual, some parameters have been changed to perform more expensive calculations in a reasonable amount of time.
+Feel free to change the parameters #according to what is better for your system.
+
+&general
+sys_name="Linear_PB",
+startframe=1,
+endframe=1000,
+forcefields="leaprc.protein.ff14SBonlysc, leaprc.gaff2"
+/
+&pb
+radiopt=1, istrng=0.10,
+/

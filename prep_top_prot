@@ -21,7 +21,8 @@ GPU_OPT='-update gpu'
 
 
 if [ $# -ne 1 ]; then
-	echo "syntax: $ $0 protein_name"
+	CMD=`basename $0`
+	echo "syntax: $CMD protein_name"
 	echo "Use this script to generate the files conf.gro, topol.top and posre.itp for the protein." 
 	echo "It uses the file: {PROTEIN}_prepped_minimized.pdb"
 	echo "located in: {ROOTDIR}/proteins/{PROTEIN}"
@@ -66,7 +67,7 @@ if ! [ -d prot_${PROTEIN} ] ; then
 	# sed "s/HA3/HA1/" ${PREPPED_PROT}_tmp | sed "s/HB3/HB1/" | sed "s/HG3/HG1/" | sed "s/HD3/HD1/" | sed "s/HE3/HE1/" | sed "s/HD11/HD1 /" | sed "s/HD12/HD2 /" | sed "s/HD13/HD3 /" | sed "s/HG13/HG11/" > ${PREPPED_PROT}
 	# Too impractical: switch to his_anal that determines the protonation state of each HIS in the protein
 	# Generate input for pdb2gmx
-	../his_anal ${PREPPED_PROT} > his_type.txt
+	his_anal ${PREPPED_PROT} > his_type.txt
 	INPUT="1\n `../his_anal2 ${PREPPED_PROT} -verbose`"
 	printf "$INPUT" |  gmx pdb2gmx -f ${PREPPED_PROT} -water tip3p $CAPPING -ignh -his
 	# should generate conf.gro, topol.top and posre.itp

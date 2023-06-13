@@ -1,7 +1,8 @@
 #!/bin/bash
 
-if [ $# -ne 2 ]  && [ $# -ne 3 ] ; then 
-	echo "syntax: $0 protein_name ligand_name [confname]"
+if [ $# -ne 2 ]  && [ $# -ne 3 ] ; then
+	CMD=`basename $0`
+	echo "syntax: $CMD protein_name ligand_name [confname]"
 	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
 	echo "NOTE: Don't forget to set the anañysis parameters (NB_CPU)!"
 	exit

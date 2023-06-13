@@ -1,7 +1,8 @@
 #!/bin/bash
 
-if [ $# -ne 3 ]  && [ $# -ne 4 ] ; then 
-	echo "syntax: $0 protein_name ligand_name confname [IFRAME]"
+if [ $# -ne 3 ]  && [ $# -ne 4 ] ; then
+	CMD=`basename $0`
+	echo "syntax: $CMD protein_name ligand_name confname [IFRAME]"
 	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
 	echo "IFRAME: interval between frames (default 10)"
 	echo "if not using various conformations but only one, use 'none' for confname."
