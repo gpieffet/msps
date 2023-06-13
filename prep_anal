@@ -1,0 +1,23 @@
+#!/bin/bash
+
+# Analysis script: Energy and trajectory
+# Option value for the energy
+# 11 for em, 
+# 13 for nvt (with restraints), 
+# 12 for npt and production 
+
+
+if [ `basename $PWD` != "production" ] && [ `basename $PWD` != "production-250ns" ; then
+	echo "Not in the production directory... exiting!"
+	exit
+fi
+
+echo "Potential energy"
+echo "12\n 0" | gmx energy -o potential.xvg
+
+echo "Centering fitting the trajectory for analysis"
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc
+
+echo "Generating usefull starting structure confstart-center.gro"
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro

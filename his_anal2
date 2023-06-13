@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# Get the residue nb of all the HIS
+HIS=(`grep HIS $1 | grep " CA " | awk '{print $6}'`) 
+# Type of each of the HIS
+HIS_TYPE=()
+
+for i in  ${!HIS[@]} ; do 
+	if grep HIS  $1 |  grep " ${HIS[i]} " | grep HD1 &> /dev/null && grep HIS  $1 |  grep " ${HIS[i]} " | grep HE2 &> /dev/null ; then
+		# HIP is GMX type 2 
+		# echo "HIS ${HIS[i]}: HIP (HD1 proton to ND1 and HE2 proton to NE2)"
+		HIS_TYPE+=(2 )
+	elif grep HIS  $1 |  grep " ${HIS[i]} " | grep HE2 &> /dev/null ; then
+		# HIE is GMX type 1
+		# echo "HIS ${HIS[i]}: HIE (HE2 proton to NE2)"
+		HIS_TYPE+=(1 )
+	elif grep HIS  $1 |  grep " ${HIS[i]} " | grep HD1 &> /dev/null ; then
+		# HID is GMX type 0
+		# echo "HIS ${HIS[i]}: HID (HD1 proton to ND1)"
+		HIS_TYPE+=(0 )
+	fi 
+done
+if [ "$2" == "-verbose" ]; then
+	echo "HIS residues: ${HIS[@]}" >> his_type.txt
+	echo "HIS types: ${HIS_TYPE[@]}" >> his_type.txt
+	echo "${HIS_TYPE[@]}" >> his_type.txt
+fi
+for i in  "${HIS_TYPE[@]}" ; do echo -n "$i\n " ; done

@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Analysis script: conformational analysis with rmsd matrix
+if [ $# -ne 3 ]  && [ $# -ne 4 ] ; then 
+	echo "syntax: $0 protein_name ligand_name confname [production_length: 20ns]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "Note: use allconf as confname to merge all confs before generating the rmsd matrix"
+	exit
+fi
+
+PROTEIN="$1"
+LIGAND="$2"
+if [ $# -eq 4 ] ; then 
+	PRODUCTION="production-$4"
+else
+	PRODUCTION="production"
+fi
+
+if [ $3 != "allconf" ] ; then 
+	EXT="-$3"
+	echo "Protein = $1  and Ligand = $2${EXT}"
+	if [ -d complex_${PROTEIN}_${LIGAND}${EXT} ] ; then
+		echo "Entering complex_${PROTEIN}_${LIGAND}${EXT}"
+		cd complex_${PROTEIN}_${LIGAND}${EXT}
+	else
+		echo "The directory complex_${PROTEIN}_${LIGAND}${EXT} doesn't exist.... Exiting"
+		exit
+	fi
+
+	cd $PRODUCTION
+
+	if [ -d rmsd ] ; then
+		echo "The rmsd directory already exists.... Exiting"
+		exit
+	fi
+	mkdir rmsd
+	cd rmsd
+
+	printf "13 & ! a H*\n q\n" | gmx make_ndx -f ../confstart-center.gro
+	printf "4\n 13\n" | gmx rms -f ../traj_centpro.xtc -s ../topol.tpr  -n -m -dt 200
+	gmx xpm2ps -f rmsd.xpm
+
+	printf "4\n 13\n" | gmx rms -f ../traj_centpro.xtc -s ../topol.tpr  -n -m rmsd-big.xpm -o rmsd-big.xvg -dt 20
+	gmx xpm2ps -f rmsd-big.xpm -o rmsd-big.eps
+else
+	if [ -d complex_${PROTEIN}_${LIGAND}-all/$PRODUCTION ] ; then
+		echo "The $PRODUCTION directory in complex_${PROTEIN}_${LIGAND}-all already exists.... Exiting"
+		exit
+	else
+		mkdir -p complex_${PROTEIN}_${LIGAND}-all/$PRODUCTION
+		cd complex_${PROTEIN}_${LIGAND}-all/$PRODUCTION
+		# Removing the water and ions: keeping protein and ligand
+		printf "1 | 13\n q\n" | gmx make_ndx -f  ../../complex_${PROTEIN}_${LIGAND}-cc0/${PRODUCTION}/confstart-center.gro
+		for conf in cc0 cc1 cc2 cc3 ; do
+			printf "22\n" | gmx trjconv -f  ../../complex_${PROTEIN}_${LIGAND}-${conf}/$PRODUCTION/traj_centpro.xtc \
+				-n index.ndx -o ${PROTEIN}_${conf}.xtc
+		done
+		echo "Simply type c here"
+		gmx trjcat -f *.xtc -o ${PROTEIN}_allconf.xtc -settime
+		printf "4\n 13\n" | gmx rms -f ${PROTEIN}_allconf.xtc \
+			-s ../../complex_${PROTEIN}_${LIGAND}-cc0/${PRODUCTION}/topol.tpr -n -m -dt 2000
+		gmx xpm2ps -f rmsd.xpm -cmin 0 -cmax 0.2
+
+		printf "4\n 13\n" | gmx rms -f ${PROTEIN}_allconf.xtc \
+			-s ../../complex_${PROTEIN}_${LIGAND}-cc0/${PRODUCTION}/topol.tpr -n -m rmsd-big.xpm -o rmsd-big.xvg -dt 1000
+		gmx xpm2ps -f rmsd-big.xpm -o plot-big.eps -cmin 0 -cmax 0.2
+
+	fi
+fi

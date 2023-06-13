@@ -1,0 +1,78 @@
+#!/bin/bash
+
+# 19/01/2023: THERE was the problem when the result for RESNAME matched more than 1 residue => taking the first one
+
+### 0. Script variables
+if [ $# -eq 1 ]; then PROTEIN="$1" ; else PROTEIN="PROT" ; fi
+# Set ROOTDIR and FF_DIR in the file prep_VAR 
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+echo ROOTDIR=$ROOTDIR
+ROOTDIR_MD="$ROOTDIR/mdsimulations"
+PROT_DIR="$ROOTDIR/proteins/${PROTEIN}"
+PREPPED_PROT="${PROTEIN}_prepped_minimized.pdb"
+FF_DIR=`grep FF_DIR  prep_VAR | awk -F = '{print $2}'`
+FF="amber99sb-star-ildn.ff"
+
+## Variables for mdrun 
+CORES=4
+GPUID=0
+GPU_OPT='-update gpu'
+# GPU_OPT=
+
+
+if [ $# -ne 1 ]; then
+	echo "syntax: $ $0 protein_name"
+	echo "Use this script to generate the files conf.gro, topol.top and posre.itp for the protein." 
+	echo "It uses the file: {PROTEIN}_prepped_minimized.pdb"
+	echo "located in: {ROOTDIR}/proteins/{PROTEIN}"
+	exit
+fi
+
+
+cd ${ROOTDIR_MD}
+###  1. Preparing the protein alone: initial protein topology and gro file
+echo -n "Preparing the lone protein......"
+if ! [ -d prot_${PROTEIN} ] ; then
+	mkdir prot_${PROTEIN}
+	cd prot_${PROTEIN}
+	ln -s ${FF_DIR}/${FF}
+	# checking for the presence of the capping group ACE and fixing atom name if structure from Maestro
+	if [ `grep -c  ACE ${PROT_DIR}/${PREPPED_PROT}` -ne 0 ] ; then 
+		CAPPING="-ter"
+		ln -s ${PROT_DIR}/${PREPPED_PROT} ${PREPPED_PROT}_ini
+		# Fixing the atom names of ACE from Maestro
+		sed "s/1H   ACE/HH31 ACE/" ${PREPPED_PROT}_ini | sed "s/2H   ACE/HH32 ACE/" | sed "s/3H   ACE/HH33 ACE/" >  ${PREPPED_PROT}; echo "SED1"
+		# Fixing the H atome name from NH in the residue after ACE  
+		RESID_INI=`grep ACE ${PREPPED_PROT} | awk '{print $6}' | tail -1`
+		RESID=$(($RESID_INI + 1))
+		RESNAME=`grep " H1 .*${RESID}" ${PREPPED_PROT} | head -1 | awk '{print $4}'` # Fixed the more than one match problem
+		sed -i "s/H1  $RESNAME/H   $RESNAME/" ${PREPPED_PROT} ; echo "SED2"
+	fi
+	# If ACE is present, the group NME or NMA (maestro's notation) sould also be there
+	# If so we rename NMA to NME if needed
+	if [ `grep -c  NMA ${PROT_DIR}/${PREPPED_PROT}` -ne 0 ] ; then 
+		# ln -s ${PROT_DIR}/${PREPPED_PROT} ${PREPPED_PROT}_ini
+		echo "Copy ${PREPPED_PROT} to ${PREPPED_PROT}_tmp"	
+		cp ${PREPPED_PROT} ${PREPPED_PROT}_tmp
+		sleep 2
+		sed s/NMA/NME/ ${PREPPED_PROT}_tmp | sed "s/CA  NME/CH3 NME/" | sed "s/1HA  NME/HH31 NME/" | sed "s/2HA  NME/HH32 NME/" | sed "s/3HA  NME/HH33 NME/" > ${PREPPED_PROT}
+	else 
+		if [ -f ${PREPPED_PROT} ] ; then
+			ln -s ${PROT_DIR}/${PREPPED_PROT}
+		fi
+	fi
+	# Renaming the H atoms from Maestro's name convention to gromacs HA3 -> HA1, HB3 -> HB1
+	# cp ${PREPPED_PROT} ${PREPPED_PROT}_tmp
+	# sed "s/HA3/HA1/" ${PREPPED_PROT}_tmp | sed "s/HB3/HB1/" | sed "s/HG3/HG1/" | sed "s/HD3/HD1/" | sed "s/HE3/HE1/" | sed "s/HD11/HD1 /" | sed "s/HD12/HD2 /" | sed "s/HD13/HD3 /" | sed "s/HG13/HG11/" > ${PREPPED_PROT}
+	# Too impractical: switch to his_anal that determines the protonation state of each HIS in the protein
+	# Generate input for pdb2gmx
+	../his_anal ${PREPPED_PROT} > his_type.txt
+	INPUT="1\n `../his_anal2 ${PREPPED_PROT} -verbose`"
+	printf "$INPUT" |  gmx pdb2gmx -f ${PREPPED_PROT} -water tip3p $CAPPING -ignh -his
+	# should generate conf.gro, topol.top and posre.itp
+	echo " Done!" ; echo ""
+	cd ..
+else
+	echo " Previously done!" ; echo ""
+fi
+

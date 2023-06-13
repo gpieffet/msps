@@ -1,0 +1,149 @@
+#!/bin/bash
+# 19/01/23:	- Changing default GPUID to 3 (the lowest card, with most space below it)
+#			- Cleaning up/adding comments
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] && [ $# -ne 4 ] ; then 
+	echo "syntax: $ prep_sim_compl protein_name ligand_name conf_identifier [GPUID]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "NOTE: Don't forget to set the simulations parameters (CORES, GPUID)!"
+	exit
+fi
+
+## Variables: Files and directories
+PROTEIN="$1"
+LIGAND="$2"
+if [ $# -eq 3 ] || [ $# -eq 4 ] ; then EXT="-$3" ; fi
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+ROOTDIR_MD="$ROOTDIR/mdsimulations"
+
+## Variables: Simulation parameters
+CORES=4
+NB_GPU=1
+if [ $# -eq 4 ] ; then GPUID=$4 ; else GPUID=3 ; fi
+GPU_OPT='-update gpu'
+# CPU_OPT='-pin on -pinoffset 0 -pinstride 0'
+
+## Other variables
+BULLET="---->"
+
+
+
+## 0. Preparing topology and structure of the protein - ligand complex
+if [ $# -eq 3 ] ; then EXT="-$3" ; fi
+${ROOTDIR_MD}/prep_top_compl $PROTEIN $LIGAND $3
+echo ""
+cd "${ROOTDIR_MD}/complex_${PROTEIN}_${LIGAND}${EXT}"
+
+
+## 1. Preparing the complete simulation box
+echo "Preparing the complete simulation box:" ; echo ""
+# 1.1 Generating the initial simulation cellbox
+echo "$BULLET Generating simulation box." ; echo ""
+gmx editconf -f complex.gro -o cell.gro -d 1.2 -bt dodecahedron &> editconf.log
+# 1.2. Solvating the cellbox
+echo "$BULLET Solvating the system." ; echo ""
+gmx solvate -cp cell.gro -p topol.top  -o solv.gro &> solvate.log
+# 1.3. Adding ions to the system to neutralize it 
+echo "$BULLET Adding ions." ; echo "" ; echo ""
+cp ${ROOTDIR_MD}/files_mdp/ions.mdp .
+gmx grompp -f ions.mdp   -c solv.gro -p topol.top -o ions.tpr -maxwarn 1 &> grompp_ions.log
+#note: we have to use -maxwarn 1 because of atom name mismatches
+echo "15" | gmx genion -s ions.tpr -o solv_ions.gro -p topol.top -pname NA -nname CL -neutral &> genion.log
+
+
+## 2. Setting up and starting the simulations
+echo "Starting Simulations:" ; echo ""
+# 2.1. EM
+echo -n "$BULLET Starting Energy minimization......"
+mkdir em
+cd em
+cp ${ROOTDIR_MD}/files_mdp/em.mdp .
+gmx grompp -f em.mdp -c ../solv_ions.gro -p ../topol.top &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES  &> logfile
+#if [ -f confout.gro ] ; then echo -e "\t ----> Energy minimization finished." ; fi
+if [ -f confout.gro ] ; then echo " finished." ; else echo " failed." ; fi
+touch 1.EM-DONE
+echo -n "EM Analysis: " ; echo -e "\t Potential energy"
+echo "11\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo ""
+cd ..
+
+# 2.2. NVT equilibration
+echo -n "$BULLET Starting NVT equilibration......" ; sleep 2
+mkdir nvt
+cd nvt
+cp ${ROOTDIR_MD}/files_mdp/nvt.mdp .
+gmx grompp -f nvt.mdp -c ../em/confout.gro -p ../topol.top -r ../em/confout.gro &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES ${CPU_OPT} ${GPU_OPT} &> logile
+if [ -f confout.gro ] ; then echo " finished." ; else echo "failed" ; fi
+touch 2.NVT-DONE
+echo "NVT Analysis: " ; echo -e "\t Potential energy"
+echo "13\n 0" | gmx energy -o potential.xvg 2> /dev/null
+ln -s ../em/confout.gro confstart.gro
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+cd ..
+
+# 2.3. NPT equilibration
+echo -n "$BULLET Starting NPT equilibration......" ; sleep 2
+mkdir npt
+cd npt
+cp ${ROOTDIR_MD}/files_mdp/npt.mdp .
+gmx grompp -f npt.mdp -c ../nvt/confout.gro -p ../topol.top  -t ../nvt/state.cpt &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES ${CPU_OPT} ${GPU_OPT} &> logile
+if [ -f confout.gro ] ; then echo " finished." ; else echo "failed" ; fi
+touch 3.NPT-DONE
+echo -n "NPT Analysis: " ; echo -e "\t Potential energy"
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+cd ..
+
+## 2.4. Production
+echo "" 
+echo "$BULLET Starting production run." ; sleep 2
+echo -n -e "\t\t Creating production directory......"
+if ! [ -d production ] ; then 
+	mkdir production ; echo " Done!" 
+else 
+	echo " Already created.... Exiting!" ; exit 
+fi
+cd production ; echo -n -e "\t\t Entering production directory: " ; echo "$PWD"
+cp ${ROOTDIR_MD}/files_mdp/md.mdp .
+if ! [ -f confout.gro ]; then
+	echo -n -e "\t\t Starting mdrun......"
+	gmx grompp -f md.mdp -c ../npt/confout.gro -p ../topol.top -t ../npt/state.cpt &> grompp.log 
+	gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES ${CPU_OPT} ${GPU_OPT} &> logfile
+	touch 4.PROD-DONE
+	echo " finished."
+fi
+echo ""
+echo -n "Production Simulation Analysis: " ; echo -e "\t Potential Energy"
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "" 
+echo "Preparing trajectory for visualization......" ; echo "" 
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+cd ..
+
+## 3. Running MMPBSA calculations
+cd ..
+echo ""
+echo "Starting mmpbsa calculations:"
+./prep_mmpbsa_u $1 $2 $3 2		# calculate every 2 frames
+
+## Restart simulation
+#gmx mdrun -cpi state.cpt  -append -gpu_id 0 -ntmpi 1 -ntomp 2 -update gpu &>> logfile &
+### RMSD analysis
+## rmsdist: Atom distance rmsd (no fitting, so must be done before hand)
+#gmx rmsdist -f traj_centpro.xtc -n index.ndx
+## rms: RMSD of a trajectory (fitting) => more noisy than with rmsdist
+#gmx rms -f traj_centpro.xtc -n index.ndx -fit rot+trans
+## RMSD comparison of two trajectories (fitting)
+#gmx rms -f traj_centpro.xtc  -f2 ../production-nstlist/traj_centpro.xtc -n index.ndx  -m -fit rot+trans -tu ns -dt 10

@@ -1,0 +1,55 @@
+#!/bin/bash
+
+EXT=`basename $1 | cut -d . -f2`
+# Arrays of the residue numbers of each of the specific HIS (HID and HE2)
+# HID contains HD1 attached to ND1
+# HIE contains HE2 attached to NE2
+# HIP contains both HD1 nad HE2
+if [ "$EXT" == "pdb" ] ; then 
+	HD1=(`grep HIS $1 | grep HD1 | awk '{print $6}'`) 
+	HE2=(`grep HIS $1 | grep HE2 | awk '{print $6}'`) 
+elif [ "$EXT" == "gro" ] ; then
+	HD1=()
+	for i in `grep HIS $1 | grep HD1 | awk '{print $1}'` ; do 
+		NB=`echo $i | wc -c` 
+		HD1+=`echo   $i | cut -c 1-$(($NB -3 -1))`" " 
+	done
+	HE2=()
+	for i in `grep HIS $1 | grep HE2 | awk '{print $1}'` ; do 
+		NB=`echo $i | wc -c` 
+		HE2+=`echo   $i | cut -c 1-$(($NB -3 -1))`" " 
+	done
+fi
+HIP=()
+# Arrays of index of HE2 and HD1 for when both contain the same residue number
+# i.e. the same residue contains both HD1 and HE2 and is of type HIP
+HE2i=()
+HD1j=()
+
+for i in  ${!HE2[@]} ; do 
+	for j in ${!HD1[@]} ; do 
+		if [ ${HE2[i]} -eq ${HD1[j]} ] ; then 
+			HIP+=(${HE2[i]})
+			HE2i+=($i)
+			HD1j+=($j)
+		fi 
+	done
+done
+# echo ${HIP[@]}
+# echo ${HE2[@]}
+# echo ${HD1[@]}
+
+# Removing the residue number from HE2 that are already in HIP
+for j in ${HD1j[@]} ; do
+	HD1[j]=
+done
+
+# Removing the residue number from HE2 that are already in HIP
+for i in ${HE2i[@]} ; do
+	HE2[i]=
+done
+
+# echo "Corrected"
+echo "HID: ${HD1[@]}"
+echo "HIE: ${HE2[@]}"
+echo "HIP: ${HIP[@]}"

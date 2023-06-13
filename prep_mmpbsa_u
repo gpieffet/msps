@@ -1,0 +1,160 @@
+#!/bin/bash
+
+if [ $# -ne 3 ]  && [ $# -ne 4 ] ; then 
+	echo "syntax: $0 protein_name ligand_name confname [IFRAME]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "IFRAME: interval between frames (default 10)"
+	echo "if not using various conformations but only one, use 'none' for confname."
+	echo "NOTE: Don't forget to set the script parameters (NB_CPU)!"
+	exit
+fi
+
+# eval "$(conda shell.bash hook)" # doesn't work in uchuva (precedence of /usr/local/anaconda3/ in scripts)
+source ~/anaconda3/etc/profile.d/conda.sh &> /dev/null
+conda activate gmxMMPBSA
+PROTEIN="$1"
+LIGAND="$2"
+if [ $3 != "none" ] ; then EXT="-$3" ; else EXT="" ; fi
+NB_CPU=12
+SFRAME=1		# start frame
+EFRAME=2000		# end frame
+if [ $# -eq 4 ] ; then IFRAME=$4 ; else IFRAME=10 ; fi		# process every IFRAME: 10
+DATE_S=`date`
+RESULT_FILE="FINAL_RESULTS_MMGBSA.csv"
+# Cool trick with the variable name further down: RADII=RADII${j} and PBRadii=${!RADII}
+RADII2=3
+RADII5=3
+RADII7=1
+RADII8=4
+
+echo "Protein = $1  and Ligand = $2${EXT}"
+if [ -d complex_${PROTEIN}_${LIGAND}${EXT} ] ; then
+	echo "Entering complex_${PROTEIN}_${LIGAND}${EXT}"
+	cd complex_${PROTEIN}_${LIGAND}${EXT}
+else
+	echo "The directory complex_${PROTEIN}_${LIGAND}${EXT} doesn't exist.... Exiting"
+	exit
+fi
+
+## Checking for index.ndx
+## in complex_${PROTEIN}_${LIGAND}${EXT}
+if ! [ -f index.ndx ] ; then
+	echo -n "The file index.ndx does not exist.... creating it.... "
+	echo "q" | gmx make_ndx -f solv_ions.gro &> /dev/null ; echo "Done!"
+fi 
+
+## Checking for previous mmpbsa calculations
+NBFRAMES=`echo "$EFRAME/$IFRAME" | bc`
+if [ -d mmpbsa-TT-${NBFRAMES}f ] ; then
+	echo "The mmpbsa-TT-${NBFRAMES}f directory exists.... Backing it up...."
+	mv mmpbsa-TT-${NBFRAMES}f mmpbsa-TT-${NBFRAMES}-old
+	mkdir mmpbsa-TT-${NBFRAMES}f
+	# cd mmpbsa-${NBFRAMES}f ; mkdir OLD ; mv * OLD ; cd ..
+	# echo  "The mmpbsa directory exists.... Proceeding...."
+else
+	mkdir mmpbsa-TT-${NBFRAMES}f
+fi
+cd mmpbsa-TT-${NBFRAMES}f
+
+### MM/GBSA with igb=2, 5, 7 and 8
+#for j in 2 5 7 8; do
+## for j in 7 8; do
+#	if [ -d gbsa_ent_rad_igb$j ] ; then
+#		echo -n "Found directory gbsa_ent_rad_igb$j... "
+#		if ! [ -f gbsa_ent_rad_igb$j/${RESULT_FILE} ] ; then
+#			echo "No file ${RESULT_FILE}"
+#			echo "------> Deleting gbsa_ent_rad_igb$j"
+#			rm -rf gbsa_ent_rad_igb$j
+#		else
+#			echo "File ${RESULT_FILE} found:"
+#			echo "------> Backing up gbsa_ent_rad_igb$j to gbsa_ent_rad_igb${j}-BKUP"
+#			mv gbsa_ent_rad_igb$j gbsa_ent_rad_igb${j}-BKUP
+#		fi
+#	fi
+#	mkdir gbsa_ent_rad_igb$j
+#	cd gbsa_ent_rad_igb$j
+#	# sed s/IGB/$j/ ../../../files_mmpbsa/mmgbsa.in > mmgbsa.in
+#	RADII=RADII${j}
+#	cat > mmgbsa.in <<-MMGBSA
+#	&general
+#	sys_name="${PROTEIN}-${LIGAND}-ST",
+#	startframe=$SFRAME,
+#	endframe=$EFRAME,
+#	forcefields="leaprc.protein.ff14SBonlysc, leaprc.gaff2"
+#	# Interaction Entropy (IE)
+#	interaction_entropy=1, ie_segment=50, temperature=300
+#	PBRadii=${!RADII}
+#	/
+#	&gb
+#	igb=$j, saltcon=0.10,
+#	/
+#	MMGBSA
+#	echo "Calculating MM/GBSA with igb$j"
+#
+##	gmx_MMPBSA -O \
+#	mpirun -np $NB_CPU gmx_MMPBSA MPI -O \
+#		-i mmgbsa.in \
+#		-cs ../../production/topol.tpr \
+#		-ci ../../index.ndx -cg 1 19 \
+#		-ct ../../production/traj_centpro.xtc \
+#		-cp ../../topol.top \
+#		-eo $RESULT_FILE \
+#		-nogui &> logfile
+#	cd ..
+#done
+
+
+## MM/PBSA
+#cp ../../files_mmpbsa/mmgpbsa.in .
+if [ -d pbsa_ent ] ; then
+	echo -n "Found directory pbsa_ent... "
+	if ! [ -f pbsa_ent/${RESULT_FILE} ] ; then
+		echo "No file ${RESULT_FILE}"	
+		echo "------> Deleting pbsa_ent"
+		rm -rf pbsa_ent
+	else
+		echo "File ${RESULT_FILE} found:"
+		echo "------> Backing up pbsa_ent to pbsa_ent-BKUP"
+		mv pbsa_ent pbsa_ent-BKUP
+	fi
+fi
+mkdir pbsa_ent
+cd pbsa_ent
+cat > mmgpbsa.in <<-MMGPBSA
+	&general
+	sys_name="${PROTEIN}-${LIGAND}-ST",
+	startframe=$SFRAME,
+	endframe=$EFRAME,
+	interval=$IFRAME,
+	forcefields="leaprc.protein.ff14SBonlysc, leaprc.gaff2"
+	# Interaction Entropy (IE)
+	interaction_entropy=1, ie_segment=50, temperature=300
+	/
+#	&gb
+#	igb=8, saltcon=0.10,
+#	/
+	&pb
+	radiopt=0, istrng=0.10,
+	/
+MMGPBSA
+echo "Calculating MM/PBSA every $IFRAME frames for a total of $NBFRAMES frames"
+
+#gmx_MMPBSA -O \
+mpirun -np $NB_CPU gmx_MMPBSA MPI -O \
+	-i mmgpbsa.in \
+	-cs ../../production/topol.tpr \
+	-ci ../../index.ndx -cg 1 19 \
+	-ct ../../production/traj_centpro-200ns.xtc \
+	-cp ../../topol.top \
+	-rs ../../../prot_${PROTEIN}/production/topol.tpr \
+	-ri ../../../prot_${PROTEIN}/index.ndx -rg 1 \
+	-rt ../../../prot_${PROTEIN}/production/traj_centpro.xtc \
+	-ls ../../../lig_${LIGAND}/5.simulations/production-200ns/topol.tpr \
+	-li ../../../lig_${LIGAND}/5.simulations/index.ndx -lg 2 \
+	-lt  ../../../lig_${LIGAND}/5.simulations/production-200ns/traj_centpro.xtc \
+	-eo $RESULT_FILE \
+	-nogui &> logfile
+cd ../..
+DATE_F=`date`
+echo "Starting date: $DATE_S"
+echo "Finishing date: $DATE_F"

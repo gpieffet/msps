@@ -1,0 +1,179 @@
+#!/bin/bash
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] ; then 
+	echo "syntax: $ prep_top_compl protein_name ligand_name confname"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "NOTE: Don't forget to check the location (DOCK_RUN) and name of the ligand (DOCK_LIG)"
+	exit
+fi
+
+
+### 0. Variables: Files and directories
+PROTEIN="$1"
+LIGAND="$2"
+FF_DIR=`grep FF_DIR  prep_VAR | awk -F = '{print $2}'`
+FF="amber99sb-star-ildn.ff"
+# DOCK_DIR_GLIDE=`grep DOCK_DIR_GLIDE  prep_VAR | awk -F = '{print $2}'`
+DOCK_DIR=`grep DOCK_DIR  prep_VAR | awk -F = '{print $2}'`
+DOCK_PROT="${DOCK_DIR}/${PROTEIN}/${PROTEIN}_prepped_minimized.pdb"
+## glide variables
+#DOCK_RUN="glide-dock_XP_ligCmod"
+#DOCK_LIG="${PROTEIN}_${LIGAND}_pose1.mol2"
+## vina variables
+# DOCK_RUN="../${LIGAND}/1.b3lyp_opt_esp/"
+# DOCK_LIG="${DOCK_DIR}/${LIGAND}/1.b3lyp_opt_esp/${PROTEIN}_${LIGAND}-1in.pdb"
+if [ $# -eq 3 ] ; then EXT="-$3" ; fi
+# DOCK_LIG="${DOCK_DIR}/${LIGAND}/1.b3lyp_opt_esp/${PROTEIN}_${LIGAND}${EXT}.pdb"
+DOCK_LIG="${DOCK_DIR}/${PROTEIN}/${PROTEIN}_${LIGAND}_cluster/${PROTEIN}_${LIGAND}${EXT}.gro"
+
+echo "Generating Structure and topology files of the complex formed by ${PROTEIN} and ${LIGAND}." ; echo "" ; #sleep 1
+
+
+
+BULLET="---->"
+###  1. Preparing the protein alone: initial protein topology and gro file
+####### Soon to be replaced by a prep_top_prot: in the meantime run ./prep_sim_prot
+echo -n "$BULLET Preparing the lone protein......" ; #sleep 1
+if ! [ -d prot_${PROTEIN} ] ; then
+	mkdir prot_${PROTEIN}
+	cd prot_${PROTEIN}
+	ln -s ${FF_DIR}/${FF}
+	ln -s ${DOCK_PROT}
+	echo "1" |  gmx pdb2gmx -f ${DOCK_PROT} -water tip3p  -ignh
+	# should generate conf.gro, topol.top and posre.itp
+	cd ..
+	echo " Done!" ; echo ""
+else
+	echo " Previously done!" ; echo ""
+fi
+
+
+
+###  2. Preparing the complex protein - ligand
+if ! [ -d complex_${PROTEIN}_${LIGAND}${EXT} ] ; then 
+	mkdir complex_${PROTEIN}_${LIGAND}${EXT} 
+else
+	echo "Directory complex_${PROTEIN}_${LIGAND}${EXT} already exists... Exiting!"
+	exit
+fi
+cd complex_${PROTEIN}_${LIGAND}${EXT}
+if ! [ -d "$FF" ] ; then ln -s ${FF_DIR}/$FF ; fi
+
+
+## 2.a. File preparation
+echo "$BULLET Preparing the protein and ligand files." ; #sleep 1
+# File preparation: Protein structure
+if ! [ -f ${PROTEIN}.gro ] ; then ln -s ../prot_${PROTEIN}/conf.gro ${PROTEIN}.gro ; fi
+
+# File preparation: Ligand structure
+# if ! [ -f ${LIGAND}.pdb ] ; then obabel ${DOCK_LIG}  -h -O ${LIGAND}.pdb ; fi
+# if ! [ -f ${LIGAND}.gro ] ; then gmx editconf -f ${LIGAND}.pdb -o ${LIGAND}.gro 2> /dev/null ; fi
+if ! [ -f ${LIGAND}.gro ] ; then ln -s ${DOCK_LIG} ${LIGAND}.gro ; fi
+
+# File preparation: Ligand topology (top)
+# cp ../lig_${LIGAND}/4.gromac_parameters/LIG_GMX.top ${LIGAND}.itp
+cp ../lig_${LIGAND}/${LIGAND}.top .
+cp ../lig_${LIGAND}/posre_${LIGAND}.itp .
+echo ""
+
+
+## 2.b. Adapting ligand topology (itp) for use in the complex topology file
+echo -n "$BULLET Adapting original ligand itp file for use in the complex......" ; #sleep 1
+# removing the bottom part of the file
+mv ${LIGAND}.top ${LIGAND}_orig.itp 
+LINE_NB=`cat ${LIGAND}_orig.itp | wc -l`
+head -$(($LINE_NB - 6)) ${LIGAND}_orig.itp > ${LIGAND}.itp
+
+# removing the top part of the file
+mv ${LIGAND}.itp ${LIGAND}_orig2.itp
+LINE_NB=`awk '{i+=1 ; if ($0 == "[ moleculetype ]") position=i}; END {print position}'  ${LIGAND}_orig2.itp`
+tail -n +$LINE_NB ${LIGAND}_orig2.itp > ${LIGAND}.itp
+
+# keeping the atom types
+head -$(($LINE_NB - 1)) ${LIGAND}_orig2.itp | tail -n +6 > at_types.itp
+rm ${LIGAND}_orig.itp ${LIGAND}_orig2.itp
+echo " Done!" ; echo ""
+
+
+## 2.c. Generating the Complex structure
+echo -n "$BULLET Generating the structure file of the complex......"
+PROT_ATOM_NB=`head -2 ${PROTEIN}.gro | tail -1`
+LIG_ATOM_NB=`head -2  ${LIGAND}.gro | tail -1`
+# head -2 ${PROTEIN}.gro | sed s/"$PROT_ATOM_NB"/"$(($PROT_ATOM_NB + $LIG_ATOM_NB))"/ > complex.gro
+echo "Complex $PROTEIN - $LIGAND" > complex.gro
+echo "$(($PROT_ATOM_NB + $LIG_ATOM_NB))" >> complex.gro
+PROT_LINE_NB=`tail -n +3 ${PROTEIN}.gro | wc -l`
+if grep SOL ${PROTEIN}.gro ; then
+	echo -n  " SOL molecule(s) detected.... " 
+	NB_SOL=`grep SOL ${PROTEIN}.gro | wc -l`
+	PROT_LINE_NB=$(($PROT_LINE_NB - $NB_SOL))
+	echo "moved at the end of the structure."
+else
+	echo " no SOL molecule(s) detected "
+fi
+
+# Putting the protein
+tail -n +3 ${PROTEIN}.gro | head -$(($PROT_LINE_NB - 1 )) >> complex.gro
+LIG_NB_LINES=`tail -n +3 ${LIGAND}.gro | wc -l`
+# Putting the ligand
+tail -n +3 ${LIGAND}.gro | head -$(($LIG_NB_LINES - 1 )) >> complex.gro
+# Putting the water
+tail -n +3 ${PROTEIN}.gro | tail -$(($NB_SOL + 1)) >> complex.gro
+echo -n "$BULLET Generating the structure file of the complex......" ; echo " Done!" ; echo ""
+
+
+## 2.d. Generating the topology of the complex
+if [ -f ../prot_${PROTEIN}/solv.gro ] ; then 
+	cp ../prot_${PROTEIN}/\#topol.top.1\# topol_orig.top
+else
+	cp ../prot_${PROTEIN}/topol.top topol_orig.top
+fi
+cp ../prot_${PROTEIN}/posre.itp .
+echo -n "$BULLET Generating the topology file of the complex......" 
+
+# Top section: including the FF parameters and adding the atom types of the ligand
+cat > topol.top <<-INCLUDE_FF_PARAMS
+	;   File 'topol.top' was generated by $0
+	;
+
+	; Include forcefield parameters
+	#include "./$FF/forcefield.itp"
+INCLUDE_FF_PARAMS
+cat at_types.itp >> topol.top
+
+# Middle section: adding the protein parameters
+LINE_NB=`awk '{i+=1 ; if ($0 == "[ moleculetype ]") position=i}; END {print position}'  topol_orig.top`
+tail -n +$LINE_NB topol_orig.top >> topol.top
+
+# End section: including ligand.itp
+mv topol.top topol_orig2.top
+LINE_NB=`awk '{i+=1 ; if ($0 == "; Include water topology") position=i}; END {print position}'  topol_orig2.top`
+head -$(($LINE_NB - 1)) topol_orig2.top > topol.top
+cat >> topol.top <<-INCLUDE_FF_LIG_PARAMS
+	; Include the topology of $LIGAND
+	#include "$LIGAND.itp"
+INCLUDE_FF_LIG_PARAMS
+
+# Putting back the end: including water.itp, ions.itp and also [ molecules ]
+# Check for the presence of SOL in topology pre-solvation
+if ! grep SOL topol_orig2.top > /dev/null ; then
+	tail -n +$(($LINE_NB - 1)) topol_orig2.top >> topol.top
+	# Last line: nb of ligand molecule
+	echo "LIG                 1" >> topol.top
+else
+	echo -n " SOL molecule(s) detected.... "
+	LINE_SIZE=`tail -n +$(($LINE_NB - 1)) topol_orig2.top | wc -l`
+	tail -n +$(($LINE_NB - 1)) topol_orig2.top | head -$(($LINE_SIZE - 1)) >> topol.top
+	# Nb of ligand molecule
+	echo "LIG                 1" >> topol.top
+	# Last line: number of SOL present pre-solvation
+	tail -1 topol_orig2.top >> topol.top
+	echo "moved at the end of the topology."
+	echo -n "$BULLET Generating the complex topology file......"
+fi
+
+# cleaning up
+rm topol_orig.top topol_orig2.top
+
+echo " Done!" ; echo "" ; echo ""
+

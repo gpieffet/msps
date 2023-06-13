@@ -1,0 +1,92 @@
+#!/bin/bash
+# 19/01/23:	- Changing default GPUID to 3 (the lowest card, with most space below it)
+#			- Cleaning up/adding comments
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] && [ $# -ne 4 ] ; then 
+	echo "syntax: $ `basename $0` protein_name ligand_name conf_identifier [GPUID]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "Continue a simulation that ended prematurely."
+	echo "NOTE: Don't forget to set the simulations parameters (CORES, GPUID)!"
+	exit
+fi
+
+## Variables: Files and directories
+PROTEIN="$1"
+LIGAND="$2"
+if [ $# -eq 3 ] || [ $# -eq 4 ] ; then EXT="-$3" ; fi
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+ROOTDIR_MD="$ROOTDIR/mdsimulations"
+
+## Variables: Simulation parameters
+CORES=4
+NB_GPU=1
+if [ $# -eq 4 ] ; then GPUID=$4 ; else GPUID=3 ; fi	# default GPUID set to 3
+GPU_OPT='-update gpu'
+# CPU_OPT='-pin on -pinoffset 0 -pinstride 0'
+
+## Other variables
+BULLET="---->"
+
+cd "${ROOTDIR_MD}/complex_${PROTEIN}_${LIGAND}${EXT}"
+
+## 1. checking up previous simulation and preparing continuation run
+echo "Continuing Simulations:"
+if ! [ -d production ]; then
+	echo "No directory production...Exiting!"
+	exit
+fi
+
+cd production ; echo -e "\t Entering production directory: " ; echo "$PWD"
+if [ -f confout.gro ] ; then
+	echo "File confout.gro found... Exiting!"
+	exit
+fi
+if ! [ -f topol.tpr ] ; then
+	echo "File topol.tpr not found... Exiting!"
+	exit
+fi
+mkdir PREV
+cp * PREV
+echo "$BULLET Continuing production run." ; sleep 2
+echo -n -e "\t Starting mdrun......"
+if grep ntomp  md.log > /dev/null ; then 
+	CORES=`grep ntomp  md.log | awk -F ntomp '{print $2}' | awk '{print $1'}`
+	echo "Previous simulation run on $CORES cores... Using same number of cores."
+	gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES ${CPU_OPT} ${GPU_OPT} -cpi state.cpt -append &> logfile
+else
+	echo "Number of cores used in the previous simulation not determined:"
+	echo "ntomp option not found in previous mdp.log (???). Might want to check that out.... Exiting"
+	exit
+fi
+touch 4.PROD-DONE
+echo " finished."
+
+
+touch 4.PREANALYSIS
+echo ""
+echo -n "Production Simulation Analysis: " ; echo -e "\t Potential Energy"
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "" 
+echo "Preparing trajectory for visualization......" ; echo "" 
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+touch 4.POSTANALYSIS
+cd ..
+
+## 3. Running MMPBSA calculations
+cd ..
+echo ""
+echo "Starting mmpbsa calculations:"
+./prep_mmpbsa_u $1 $2 $3 2
+
+## Restart simulation
+#gmx mdrun -cpi state.cpt  -append -gpu_id 0 -ntmpi 1 -ntomp 2 -update gpu &>> logfile &
+### RMSD analysis
+## rmsdist: Atom distance rmsd (no fitting, so must be done before hand)
+#gmx rmsdist -f traj_centpro.xtc -n index.ndx
+## rms: RMSD of a trajectory (fitting) => more noisy than with rmsdist
+#gmx rms -f traj_centpro.xtc -n index.ndx -fit rot+trans
+## RMSD comparison of two trajectories (fitting)
+#gmx rms -f traj_centpro.xtc  -f2 ../production-nstlist/traj_centpro.xtc -n index.ndx  -m -fit rot+trans -tu ns -dt 10

@@ -1,0 +1,21 @@
+#!/bin/bash
+
+for i in complex1 complex5 ; do 
+	cd $i
+	mkdir mmpbsa
+	cd mmpbsa
+	echo "Calculando MMGBSA"
+	cp ../../mmpbsafiles/mmgbsa.in .
+	cp ../../mmpbsafiles/index.ndx .
+	# gmx_MMPBSA -O -i mmgbsa.in -cs ../production/topol.tpr -ci index.ndx -cg 1 19 -ct ../production/traj_centpro.xtc -cp ../topol.top -nogui &> logfile &
+	mpirun -np 6 gmx_MMPBSA MPI -O -i mmgbsa.in -cs ../production/topol.tpr -ci index.ndx -cg 1 19 -ct ../production/traj_centpro.xtc -cp ../topol.top -eo FINAL_RESULTS_MMPBSA.csv -nogui &> logfile
+	mkdir gbsa
+	mv * gbsa
+	cp ../../mmpbsafiles/mmpbsa.in .
+	cp ../../mmpbsafiles/index.ndx .
+	mpirun -np 6 gmx_MMPBSA MPI -O -i mmpbsa.in -cs ../production/topol.tpr -ci index.ndx -cg 1 19 -ct ../production/traj_centpro.xtc -cp ../topol.top -eo FINAL_RESULTS_MMPBSA.csv -nogui &> logfile
+	mkdir pbsa
+	mv * pbsa
+	mv pbsa/gbsa .
+	cd ..
+done

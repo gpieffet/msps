@@ -1,0 +1,98 @@
+#!/bin/bash
+# 19/01/23:	- Changing default GPUID to 3 (the lowest card, with most space below it)
+#			- Cleaning up/adding comments
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] && [ $# -ne 4 ] ; then 
+	echo "syntax: $ prep_resim_compl protein_name ligand_name conf_identifier [GPUID]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "Redo previous simulations for a longer time."
+	echo "NOTE: Don't forget to set the simulations parameters (CORES, GPUID)!"
+	exit
+fi
+
+## Variables: Files and directories
+PROTEIN="$1"
+LIGAND="$2"
+if [ $# -eq 3 ] || [ $# -eq 4 ] ; then EXT="-$3" ; fi
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+ROOTDIR_MD="$ROOTDIR/mdsimulations"
+
+## Variables: Simulation parameters
+CORES=4
+NB_GPU=1
+if [ $# -eq 4 ] ; then GPUID=$4 ; else GPUID=3 ; fi
+GPU_OPT='-update gpu'
+# CPU_OPT='-pin on -pinoffset 0 -pinstride 0'
+
+## Other variables
+BULLET="---->"
+
+cd "${ROOTDIR_MD}/complex_${PROTEIN}_${LIGAND}${EXT}"
+
+## 1. Cleaning up previous simulation
+if [ -d production ] && [ -f production/md.mdp ] ; then
+	NS=`grep nsteps  production/md.mdp | awk '{print $3}'` 
+	OLDTIME=`echo "$NS * 0.000002" | bc  | cut -d . -f1`
+	echo -n "$BULLET Found previous production directory ($OLDTIME ns simulation)... "
+	mv production production-${OLDTIME}ns
+	echo "renaming to production-${OLDTIME}ns"
+	DIRLIST=()
+	for i in  `ls -d  mmpbsa-* 2> /dev/null` ; do DIRLIST+=(`basename $i`) ; done
+	if [ ${#DIRLIST[@]} -ne 0 ] ; then
+		mv ${DIRLIST[@]} production-${OLDTIME}ns
+		echo "$BULLET moving ${DIRLIST[@]} files to production-${OLDTIME}ns"
+	else
+		echo "No previous mmpbsa-* files."
+	fi	
+	echo ""
+fi
+
+
+## 2. Starting the simulation
+echo "Starting Simulations:"
+
+## 2.1. Production
+echo "$BULLET Starting production run." ; sleep 2
+echo -n -e "\t Creating production directory......"
+if ! [ -d production ] ; then 
+	mkdir production ; echo " Done!" 
+else 
+	echo " Already created.... Exiting!" ; exit 
+fi
+cd production ; echo -e "\t Entering production directory: " ; echo "$PWD"
+cp ${ROOTDIR_MD}/files_mdp/md_long.mdp ./md.mdp
+if ! [ -f confout.gro ]; then
+	echo -n -e "\t Starting mdrun......"
+	gmx grompp -f md.mdp -c ../npt/confout.gro -p ../topol.top -t ../npt/state.cpt &> grompp.log 
+	gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES ${CPU_OPT} ${GPU_OPT} &> logfile
+	touch 4.PROD-DONE
+	echo " finished."
+fi
+touch 4.PREANALYSIS
+echo ""
+echo -n "Production Simulation Analysis: " ; echo -e "\t Potential Energy"
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "" 
+echo "Preparing trajectory for visualization......" ; echo "" 
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+touch 4.POSTANALYSIS
+cd ..
+
+## 3. Running MMPBSA calculations
+cd ..
+echo ""
+echo "Starting mmpbsa calculations:"
+./prep_mmpbsa_u $1 $2 $3 2
+
+## Restart simulation
+#gmx mdrun -cpi state.cpt  -append -gpu_id 0 -ntmpi 1 -ntomp 2 -update gpu &>> logfile &
+### RMSD analysis
+## rmsdist: Atom distance rmsd (no fitting, so must be done before hand)
+#gmx rmsdist -f traj_centpro.xtc -n index.ndx
+## rms: RMSD of a trajectory (fitting) => more noisy than with rmsdist
+#gmx rms -f traj_centpro.xtc -n index.ndx -fit rot+trans
+## RMSD comparison of two trajectories (fitting)
+#gmx rms -f traj_centpro.xtc  -f2 ../production-nstlist/traj_centpro.xtc -n index.ndx  -m -fit rot+trans -tu ns -dt 10

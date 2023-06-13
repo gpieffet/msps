@@ -1,0 +1,22 @@
+#!/bin/bash
+
+
+if [ $# -ne 4 ] ; then
+	echo "Syntax: $ $0 protein ligand frames complex/receptor/ligand/total"
+	exit
+fi
+PROTEIN=$1
+LIGAND=$2
+FRAMES=$3
+TYPE=$4
+for i in 0 1 2 3 ; do
+	if [ $TYPE == "complex" ] ; then
+		./prep_resul_mmpbsa $PROTEIN $LIGAND cc$i $FRAMES  | head -1 
+	elif [ $TYPE == "receptor" ] ; then
+		./prep_resul_mmpbsa $PROTEIN $LIGAND cc$i $FRAMES  | head -2  | tail -1 
+	elif [ $TYPE == "ligand" ] ; then
+		./prep_resul_mmpbsa $PROTEIN $LIGAND cc$i $FRAMES  | head -3  | tail -1
+	elif [ $TYPE == "total" ] ; then
+		./prep_resul_mmpbsa $PROTEIN $LIGAND cc$i $FRAMES  | head -4  | tail -1 
+	fi
+done

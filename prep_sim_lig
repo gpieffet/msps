@@ -1,0 +1,110 @@
+#!/bin/bash
+
+LIGAND="$1"
+if [ $# -ne 1 ]; then 
+	echo "syntax: $ prep_sim_lig ligand_name"
+	echo "(suposing the files ligand.gro, ligand.top and posre_ligand.itp are present)"
+	echo "NOTE: Don't forget to set the simulation parameters (CORES, GPUID) before running the script!"
+	exit
+else
+	if ! [ -f ${LIGAND}.gro ] || ! [ -f ${LIGAND}.top ]; then
+		if ! [ -f ${LIGAND}.pdb ] || ! [ -f ${LIGAND}.top ]; then
+			echo "One of ${LIGAND}.gro and/or ${LIGAND}.top is missing. Exiting."
+			exit
+		fi
+	fi
+fi
+
+# Script variables
+WORKDIR="5.simulations"
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+PROJECT_DIR="$ROOTDIR/mdsimulations"
+
+## Variables for mdrun 
+CORES=4
+GPUID=0
+GPU_OPT='-update gpu'
+#GPU_OPT=
+
+
+##  Generating the simulation box of the ligand: running prep_cell_lig
+if [ -f ${LIGAND}.gro ] ; then LIGAND_STR=${LIGAND}.gro ; else LIGAND_STR=${LIGAND}.pdb ; fi
+${PROJECT_DIR}/prep_cell_lig ${LIGAND_STR} ${LIGAND}.top $WORKDIR
+cd $WORKDIR
+
+
+##  Starting the simulations
+# 1. EM
+echo "" ; echo "Starting Energy minimization." ; echo ""
+mkdir em
+cd em
+cp ${PROJECT_DIR}/files_mdp/em.mdp .
+gmx grompp -f em.mdp -c ../solv_ions.gro -p ../${LIGAND}.top &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES  &> logfile
+if [ -f confout.gro ] ; then echo "Energy minimization finished." ; fi
+touch 1.EM-DONE
+echo "10\n 0" | gmx energy -o potential.xvg
+cd ..
+
+
+# 2. NVT equilibration
+echo "" ; echo "Starting NVT equilibration." ; sleep 2
+mkdir nvt
+cd nvt
+sed s/\\-DPOSRES\ //  ${PROJECT_DIR}/files_mdp/nvt.mdp > nvt.mdp
+gmx grompp -f nvt.mdp -c ../em/confout.gro -p ../${LIGAND}.top -r ../em/confout.gro &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES ${GPU_OPT} &> logile
+echo "NVT equilibration finished." ; echo "" ; sleep 2
+touch 2.NVT-DONE
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+ln -s ../em/confout.gro confstart.gro
+echo "2\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+cd ..
+
+
+# 3. NPT equilibration
+echo "" ; echo "Starting NPT equilibration." ; sleep 2
+mkdir npt
+cd npt
+cp ${PROJECT_DIR}/files_mdp/npt.mdp .
+gmx grompp -f npt.mdp -c ../nvt/confout.gro -p ../${LIGAND}.top  -t ../nvt/state.cpt &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES ${GPU_OPT} &> logile
+echo "NPT equilibration finished." ; echo "" ; sleep 2
+touch 3.NPT-DONE
+echo "11\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+cd ..
+
+
+## 4. Production
+echo "" ;echo "Starting production run." ; sleep 2
+mkdir production
+cd production
+cp ${PROJECT_DIR}/files_mdp/md.mdp .
+gmx grompp -f md.mdp -c ../npt/confout.gro -p ../${LIGAND}.top -t ../npt/state.cpt &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES ${GPU_OPT} &> logfile
+echo "production run finished." ; echo "" ; sleep 2
+touch 4.PROD-DONE
+echo "Analysis: " ; echo ""
+echo "    Potential Energy"  ; echo ""
+echo "11\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "" ; echo "    Preparing trajectory for visualization" ; echo ""
+echo "2\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+
+
+## Restart simulation
+#gmx mdrun -cpi state.cpt  -append -gpu_id 0 -ntmpi 1 -ntomp 2 -update gpu &>> logfile &
+### RMSD analysis
+## rmsdist: Atom distance rmsd (no fitting, so must be done before hand)
+#gmx rmsdist -f traj_centpro.xtc -n index.ndx
+## rms: RMSD of a trajectory (fitting) => more noisy than with rmsdist
+#gmx rms -f traj_centpro.xtc -n index.ndx -fit rot+trans
+## RMSD comparison of two trajectories (fitting)
+#gmx rms -f traj_centpro.xtc  -f2 ../production-nstlist/traj_centpro.xtc -n index.ndx  -m -fit rot+trans -tu ns -dt 10

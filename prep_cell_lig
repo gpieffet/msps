@@ -1,0 +1,165 @@
+#!/bin/bash
+
+
+if [ $# -ne 2 ] & [ $# -ne 3 ]; then 
+	echo "syntax: $ prep_cell_lig ligand.gro/pdb ligand.top [DIR/default]"
+	exit
+fi
+
+## Variables: Files and directories
+LIGAND_STR="`basename $1`"
+PROJECT_DIR="/home/gp.pieffet213/projects/dianaca/mdsimulations"
+# WORKDIR="complex_${PROTEIN}_${LIGAND}"
+# DOCK_DIR="/home/gp.pieffet213/projects/dianaca/glide/${PROTEIN}"
+# DOCK_PROT="${PROTEIN}_prepped_minimized.pdb"
+# DOCK_LIG="glide-dock_XP_${LIGAND}/${PROTEIN}_${LIGAND}_pose1.pdb"
+
+## Variables: Simulation parameters
+BSIZE="1.2"
+BTYPE="dodecahedron"
+FF="amber99sb-star-ildn.ff"
+WATER="tip3p"
+
+## Variables: mdrun parameters
+CORES=2
+GPUID=0
+# GPU_OPT='-update gpu'
+GPU_OPT=
+
+
+### 0. File preparation
+# Get the topology files previously generated
+echo "0. Copying the files needed for the simulations." ; echo ""
+sleep 2
+if [ `basename $1 .pdb`.pdb == $1 ] ; then
+	LIGAND=`basename $1 .pdb`
+else 
+	LIGAND=`basename $1 .gro`
+fi
+if [ $# -eq 2 ]; then
+	# Checking if the $LIGAND.gro and $LIGAND.top are in the local directory
+	if ! [ -f ${LIGAND_STR} ]; then ln -s $1 ; fi
+	if ! [ -f $LIGAND.top ]; then ln -s $2 ; fi
+	if ! [ -f posre_${LIGAND}.itp ]; then 
+		${PROJECT_DIR}/prep_posre ${LIGAND}.gro
+	fi
+elif [ $# -eq 3 ]; then
+	NAME=$3
+	if [ "$NAME" == default ]; then
+		WORKDIR="5.simulations"
+	else
+		WORKDIR="$3"
+	fi
+	if ! [ -d ${WORKDIR} ] ; then mkdir ${WORKDIR} ;fi
+	cd ${WORKDIR}
+	cp  ../$1 .
+	cp  ../$2 .
+	FILEPATH=`dirname $1`
+	if [ -f ../$FILEPATH/posre_${LIGAND}.itp ]; then
+		cp  ../$FILEPATH/posre_${LIGAND}.itp .
+	else
+		${PROJECT_DIR}/prep_posre ${LIGAND}.gro
+	fi
+fi
+
+if ! [ -f "$FF" ] ; then
+	ln -sf /home/gp.pieffet213/projects/forcefields/$FF
+fi
+
+# ln -sf ${DOCK_DIR}/${DOCK_LIG}  ${LIGAND}.pdb
+# gmx editconf -f ${LIGAND}.pdb -o ${LIGAND}.gro
+
+# cell box
+echo "" ; echo "Generating the cell box." ; echo ""
+sleep 1
+gmx editconf -f ${LIGAND_STR} -o cell.gro -d $BSIZE -bt $BTYPE &> editconf.log
+
+## solvation
+# topology mod1: adding force field line at the beginning to define the atom types
+echo "" ; echo "topology check - 1: Checking if $FF parameters included."
+if ! grep $FF  ${LIGAND}.top  ; then
+	echo "$FF parameters not included"
+	echo "Including $FF parameters."
+	mv ${LIGAND}.top  ${LIGAND}_orig.top
+	cat > ${LIGAND}.top  <<-TOPOLOGY
+		;${LIGAND}.top modified by $0
+		
+		; Include forcefield parameters
+		#include "$FF/forcefield.itp"
+TOPOLOGY
+	tail -n +6  ${LIGAND}_orig.top >> ${LIGAND}.top
+	rm ${LIGAND}_orig.top
+else
+	echo "$FF already included. Doing nothing "
+fi
+
+# topology mod2: adding includes for water
+echo "" ; echo "Topology check - 2: checking if $WATER water parameters included."
+if ! grep $WATER  ${LIGAND}.top  ; then
+	echo "$WATER water parameters not included"
+	echo "Including $WATER water parameters."
+	mv ${LIGAND}.top  ${LIGAND}_orig2.top
+	NB_LINES=`cat ${LIGAND}_orig2.top  | wc -l`
+	head -$(( ${NB_LINES} - 6)) ${LIGAND}_orig2.top > ${LIGAND}.top
+	cat >> ${LIGAND}.top <<-WATER_IONS
+		; Include water topology
+		#include "$FF/$WATER.itp"
+WATER_IONS
+	tail -7 ${LIGAND}_orig2.top >> ${LIGAND}.top
+	rm ${LIGAND}_orig2.top
+fi
+
+# topology mod3: adding includes for ions
+echo "" ; echo "Topology check - 3: checking if ions parameters included."
+if ! grep ions.itp  ${LIGAND}.top ; then
+	echo "Ions parameters not included"
+	echo "Including ions parameters."
+	mv ${LIGAND}.top ${LIGAND}_orig3.top
+	NB_LINES=`cat ${LIGAND}_orig3.top  | wc -l`
+	head -$(( ${NB_LINES} - 6)) ${LIGAND}_orig3.top > ${LIGAND}.top
+	cat >> ${LIGAND}.top <<-WATER_IONS
+		; Include topology for ions
+		#include "$FF/ions.itp"
+WATER_IONS
+	tail -7 ${LIGAND}_orig3.top >> ${LIGAND}.top
+	rm ${LIGAND}_orig3.top
+fi
+
+# Structure file
+echo "Solvating the structure file." ; echo ""
+sleep 1
+gmx solvate -cp cell.gro -p ${LIGAND}.top  -o solv.gro &> solvate.log
+
+# adding iones
+echo "Generating ions.mdp and ions.tpr" ; echo ""
+sleep 1
+# cp ../files_mdp/ions.mdp .
+cat > ions.mdp <<-IONS_MDP_FILE
+	integrator      = steep		   
+	emtol           = 10.0			
+	emstep          = 0.01		
+	nsteps          = 50000		   
+	nstcgsteep      = 500
+	
+	; Output paramters
+	nstxout            = 0
+	nstvout            = 0
+	nstfout            = 0
+	nstxout-compressed = 10
+	
+	; Parameters describing how to find the neighbors of each atom
+	nstlist            = 20		
+	ns_type            = simple	
+	cutoff-scheme      = Verlet
+	coulombtype        = cutoff	
+	rcoulomb           = 1.0
+	rvdw               = 1.0
+	pbc                = xyz
+IONS_MDP_FILE
+
+gmx grompp -f ions.mdp   -c solv.gro -p ${LIGAND}.top -o ions.tpr -maxwarn 1 &> /dev/null
+#note: we have to use -maxwarn 1 because of atom name mismatches
+
+echo "Adding ions." ; echo ""
+sleep 1
+echo "4" | gmx genion -s ions.tpr -o solv_ions.gro -p $LIGAND.top -pname NA -nname CL -neutral &> genion.log

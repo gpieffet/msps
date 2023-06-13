@@ -1,0 +1,134 @@
+#!/bin/bash
+
+if [ $# -ne 1 ] && [ $# -ne 2 ] ; then 
+	echo "syntax: $ $0 protein_name gpuid"
+	echo "Use to generate the files conf.gro, topol.top and posre.itp and more." 
+	echo "Use a second time after deleting the file NOSIM to run the simulations."
+	exit
+fi
+
+### 0. Script variables
+PROTEIN="$1"
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+MD_ROOTDIR="$ROOTDIR/mdsimulations"
+FF_DIR=`grep FF_DIR  prep_VAR | awk -F = '{print $2}'`
+FF="amber99sb-star-ildn.ff"
+
+## Variables for mdrun 
+CORES=4
+if [ $# -eq 2 ] ; then GPUID=$2 ; else GPUID=0 ; fi
+GPU_OPT='-update gpu'
+# GPU_OPT=
+
+
+cd $MD_ROOTDIR
+###  1. Preparing the protein alone: initial protein topology and gro file
+if ! [ -d prot_${PROTEIN} ] ; then
+	./prep_top_prot $PROTEIN
+	touch NOSIM
+fi
+
+
+
+###  2. Preparing the complete simulation box
+cd prot_${PROTEIN}
+if ! [ -f solv_ions.gro ]; then
+	# simulation cell box
+	echo "" ; echo "Generating simulation box." ; echo ""
+	gmx editconf -f conf.gro -o cell.gro -d 1.2 -bt dodecahedron &> editconf.log
+	
+	# solvation
+	echo "Solvating the system." ; echo ""
+	gmx solvate -cp cell.gro -p topol.top  -o solv.gro &> solvate.log
+	
+	# adding iones
+	echo "Adding ions." ; echo ""
+	cp ../files_mdp/ions.mdp .
+	gmx grompp -f ions.mdp   -c solv.gro -p topol.top -o ions.tpr -maxwarn 1 &> grompp_ions.log
+	#note: we have to use -maxwarn 1 because of atom name mismatches
+	echo "q" | gmx make_ndx -f solv.gro
+	SOL=`awk '{if ($0 ~ /\[/ )  i+=1 ; if ($0 == "[ SOL ]") position=i}; END {print position}' index.ndx`
+	echo $(($SOL - 1)) | gmx genion -s ions.tpr -o solv_ions.gro -p topol.top -pname NA -nname CL -neutral &> genion.log
+fi
+
+if [ -f NOSIM ]; then echo "Found NOSIM file.... exiting" ; exit ; fi
+
+
+
+###  3. Starting the simulations
+
+
+## 3.1. EM
+echo "" ; echo "Starting Energy minimization." ; echo ""
+mkdir em
+cd em
+cp ${MD_ROOTDIR}/files_mdp/em.mdp .
+gmx grompp -f em.mdp -c ../solv_ions.gro -p ../topol.top &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES  &> logfile
+if [ -f confout.gro ] ; then echo "Energy minimization finished." ; fi
+touch 1.EM-DONE
+echo "10\n 0" | gmx energy -o potential.xvg
+cd ..
+
+
+## 3.2. NVT equilibration
+echo "" ; echo "Starting NVT equilibration." ; sleep 2
+mkdir nvt
+cd nvt
+sed s/\\-DPOSRES_LIG//  ${MD_ROOTDIR}/files_mdp/nvt.mdp > nvt.mdp
+gmx grompp -f nvt.mdp -c ../em/confout.gro -p ../topol.top -r ../em/confout.gro &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES ${GPU_OPT} &> logile
+echo "NVT equilibration finished." ; echo "" ; sleep 2
+touch 2.NVT-DONE
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+ln -s ../em/confout.gro confstart.gro
+echo "2\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+cd ..
+
+
+## 3.3. NPT equilibration
+echo "" ; echo "Starting NPT equilibration." ; sleep 2
+mkdir npt
+cd npt
+cp ${MD_ROOTDIR}/files_mdp/npt.mdp .
+gmx grompp -f npt.mdp -c ../nvt/confout.gro -p ../topol.top  -t ../nvt/state.cpt &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES ${GPU_OPT} &> logile
+echo "NPT equilibration finished." ; echo "" ; sleep 2
+touch 3.NPT-DONE
+echo "11\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+cd ..
+
+
+## 3.4. Production
+echo "" ;echo "Starting production run." ; sleep 2
+mkdir production
+cd production
+cp ${MD_ROOTDIR}/files_mdp/md.mdp .
+gmx grompp -f md.mdp -c ../npt/confout.gro -p ../topol.top -t ../npt/state.cpt &> grompp.log
+gmx mdrun -gpu_id $GPUID -ntmpi 1 -ntomp $CORES ${GPU_OPT} &> logfile
+echo "production run finished." ; echo "" ; sleep 2
+touch 4.PROD-DONE
+echo "Analysis: " ; echo ""
+echo "    Potential Energy"  ; echo ""
+echo "11\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "" ; echo "    Preparing trajectory for visualization" ; echo ""
+echo "2\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "2\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+
+
+## Restart simulation
+#gmx mdrun -cpi state.cpt  -append -gpu_id 0 -ntmpi 1 -ntomp 2 -update gpu &>> logfile &
+### RMSD analysis
+## rmsdist: Atom distance rmsd (no fitting, so must be done before hand)
+#gmx rmsdist -f traj_centpro.xtc -n index.ndx
+## rms: RMSD of a trajectory (fitting) => more noisy than with rmsdist
+#gmx rms -f traj_centpro.xtc -n index.ndx -fit rot+trans
+## RMSD comparison of two trajectories (fitting)
+#gmx rms -f traj_centpro.xtc  -f2 ../production-nstlist/traj_centpro.xtc -n index.ndx  -m -fit rot+trans -tu ns -dt 10

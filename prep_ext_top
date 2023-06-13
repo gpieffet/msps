@@ -1,0 +1,35 @@
+#!/bin/bash
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] && [ $# -ne 4 ] ; then 
+	echo "syntax: $ prep_ext_top protein_name ligand_name conf_identifier [time]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "Prepare extended simulation to the indicated time"
+	exit
+fi
+
+## WORKS TOGETHER WITH prep_ext_sim BUT COMPLICATIONS DUE TO THE OUTPUT FREQUENCY THAT HAD TO BE
+## CHANGED AND THE OLD FILES HAVE TO BE CHANGED TO MATCH THE NEW FREQUENCY 
+
+## Variables: Files and directories
+PROTEIN="$1"
+LIGAND="$2"
+if [ $# -eq 3 ] || [ $# -eq 4 ] ; then EXT="-$3" ; fi
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+ROOTDIR_MD="$ROOTDIR/mdsimulations"
+
+cd "${ROOTDIR_MD}/complex_${PROTEIN}_${LIGAND}${EXT}"
+NS=`grep nsteps  production/md.mdp | awk '{print $3}'` 
+OLDTIME=`echo "$NS * 0.000002" | bc  | cut -d . -f1`
+if [ -f production/confout.gro ] ; then 
+	echo "Previous simulation found: $OLDTIME ns"
+	echo "backing up to production-${OLDTIME}ns"
+else
+	echo "No confout.gro found, exiting"
+	exit
+fi
+
+cp -r production production-${OLDTIME}ns
+mv mmpbsa* production-${OLDTIME}ns
+cd production
+rm topol.tpr 4.PROD-DONE
+gmx convert-tpr  -s ../production-${OLDTIME}ns/topol.tpr  -until 250000 -o topol.tpr

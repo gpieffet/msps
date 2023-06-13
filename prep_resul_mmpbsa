@@ -1,0 +1,20 @@
+#!/bin/bash
+
+
+if [ $# -ne 3 ] && [ $# -ne 4 ] ; then
+	echo "Syntax: $ $0 protein ligand [conf] frames"
+	exit
+fi
+PROTEIN=$1
+LIGAND=$2
+if [ $# -eq 4 ] ; then
+	EXT=$3
+	FRAMES=$4
+	grep TOTAL complex_${PROTEIN}_${LIGAND}-${EXT}/mmpbsa-${FRAMES}f/pbsa_ent/FINAL_RESULTS_MMPBSA.dat
+else
+	FRAMES=$3
+	for i in complex_${PROTEIN}_${LIGAND}-*/mmpbsa-${FRAMES}f/pbsa_ent/FINAL_RESULTS_MMPBSA.dat ; do
+		grep ΔTOTAL $i
+	done
+fi
+

@@ -1,0 +1,45 @@
+#!/bin/bash 
+
+# NEW
+# run from anywhere and generate the posre.itp in the current directory
+
+# OLD
+# Run from the root dir
+# tipically: $ prep_posre files_docking/ligH.pdb
+
+if [ $# -ne 1 ] && [ $# -ne 2 ] ; then
+	echo "Syntax: $0 file.pdb[gro] [molecule_name]"
+	exit
+fi
+
+EXT=`basename  $1 | cut -d . -f2`
+if [ $# -eq 1 ] ; then
+	LIGAND=`basename $1 .$EXT`
+else
+	LIGAND="$2"
+fi
+
+# cp files_top/posre_ligand.itp files_top/posre_${LIGAND}.itp
+echo "Genrating position restraint file for "`basename $1`.
+echo "[ position_restraints ]" > posre_${LIGAND}.itp
+echo "; atom  type      fx      fy      fz" >> posre_${LIGAND}.itp
+
+if [ $EXT == "pdb" ]; then
+	ATOMTYPE=`head $1 | tail -1 | awk '{print $1}'`
+	grep  $ATOMTYPE  $1 | \
+		awk '{print $2"   "$3}' | \
+		grep -v H |  \
+		awk '{print "     "$1"     1  1000  1000  1000"}' >> posre_${LIGAND}.itp
+elif [ $EXT == "gro" ]; then
+	MOLNAME=`head $1 | tail -1 | awk '{print $2}'`
+	grep  " $MOLNAME " $1 | \
+		awk '{print $4"   "$3}' | \
+		grep -v H |  \
+		awk '{print "     "$1"     1  1000  1000  1000"}' >> posre_${LIGAND}.itp
+else
+	echo "File type $EXT not supported, please use a pdb or gro file."
+	exit
+fi
+echo "The file posre_${LIGAND}.itp was generated"
+echo ""
+

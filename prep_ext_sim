@@ -1,0 +1,59 @@
+#!/bin/bash
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] && [ $# -ne 4 ] ; then 
+	echo "syntax: $ prep_ext_sim protein_name ligand_name conf_identifier [GPUID]"
+	echo "(suposing that the filenames are strictly based on the protein and ligand names)"
+	echo "Run the extend simulation."
+	exit
+fi
+
+### NOT FINISHED: Problem with the size of the output givn the amound of proteins
+
+## Variables: Files and directories
+PROTEIN="$1"
+LIGAND="$2"
+if [ $# -eq 3 ] || [ $# -eq 4 ] ; then EXT="-$3" ; fi
+ROOTDIR=`grep ROOTDIR  prep_VAR | awk -F = '{print $2}'`
+ROOTDIR_MD="$ROOTDIR/mdsimulations"
+
+cd "${ROOTDIR_MD}/complex_${PROTEIN}_${LIGAND}${EXT}"
+## Variables: Simulation parameters
+CORES=`grep "gmx mdrun "  production/md.log | awk -F 'ntomp' '{print $2}' | awk '{print $1}'`
+NB_GPU=1
+if [ $# -eq 4 ] ; then GPUID=$4 ; else GPUID=3 ; fi
+GPU_OPT='-update gpu'
+# CPU_OPT='-pin on -pinoffset 0 -pinstride 0'
+
+## Other variables
+BULLET="---->"
+
+
+## 1. Running extended simulation
+cd production
+echo ""
+echo -n "$BULLET Figuring out how many cores were used in the initial simulation... "
+CORES=`grep "gmx mdrun "  production/md.log | awk -F 'ntomp' '{print $2}' | awk '{print $1}'`
+echo "$CORES cores"
+
+gmx mdrun -gpu_id $GPUID -ntmpi ${NB_GPU} -ntomp $CORES ${CPU_OPT} ${GPU_OPT} -cpi state.cpt -append &> logfile
+touch 4.PROD-DONE
+echo " finished."
+
+## 2. Analysis
+echo ""
+echo -n "Production Simulation Analysis: " ; echo -e "\t Potential Energy"
+echo "12\n 0" | gmx energy -o potential.xvg 2> /dev/null
+echo "" 
+echo "Preparing trajectory for visualization......" ; echo "" 
+echo "4\n 0" | gmx trjconv -f traj_comp.xtc  -ur compact -center -pbc mol -o traj_center.xtc 2> /dev/null
+echo "4\n 0" | gmx trjconv -f traj_center.xtc -fit progressive -o traj_centpro.xtc 2> /dev/null
+echo "0" | gmx trjconv  -f traj_centpro.xtc -dump 0 -o confstart-center.gro 2> /dev/null
+echo ""
+cd ..
+
+## 3. Running MMPBSA calculations
+cd ..
+echo ""
+echo "Starting mmpbsa calculations:"
+./prep_mmpbsa_u $1 $2 $3 
+

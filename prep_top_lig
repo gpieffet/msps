@@ -1,0 +1,110 @@
+#!/bin/bash
+
+# Script to generate the GAFF parameters for the gromacs topology file of the ligand
+# Use as argument $1 the .mol2 /.log file of ligand conformation resulting from the 
+# docking simulation AFTER resp charge calculation
+# Note: the final gro file cannot be used for the MD simulation since the conformation changes
+# during the process (first during gaussian optimization, and again during charge fitting )
+
+
+# Note: We REALLY expect the filename to correspond to the ligand name but if not the case, pass the name as 2nd argument
+if [ $# -eq 0 ] ; then 
+	echo "syntax: $0 ligand<.mol2/.log> [ molecule_name ]"
+	echo ""
+	exit
+fi
+
+# First we check the type of the file
+TYPE=`basename $1  | cut -d . -f2`
+echo "Type of the input file is $TYPE."
+if [ $# -eq 1 ] ; then
+	LIGAND=`basename $1 .$TYPE`
+	if ! [ -f ${LIGAND}.${TYPE} ] ; then
+		echo "Linking ${LIGAND}.${TYPE} to $1"
+		ln -s "$1" 
+	fi
+elif [ $# -eq 2 ] ; then
+	LIGAND="$2"
+	if ! [ -f ${LIGAND}.${TYPE} ] ; then
+		echo "Linking ${LIGAND}.${TYPE} to $1"
+		ln -s "$1" ${LIGAND}.${TYPE}
+	else
+		echo "${LIGAND}.${TYPE} already exists..... exiting"
+		exit
+	fi
+fi
+
+
+# Section for docking results from vina
+# PDB=pgl_1-result5_pose1.pdb
+# COM=${BASE}.com
+# LOG=${LIGAND}.log
+#
+# Add H atoms to the docked structure and convert to pdb
+# obabel $1 -O ${BASE}h.pdb -h
+#
+# Calculating the ESP potential
+# Use the protonated docked result to generate the .com file with gaussview
+# g16 $COM &
+
+
+# 2. Generating a mol2 file with resp charges, if given a .log file. 
+# If given a mol2 file, assume it already contains RESP charges
+if [ $TYPE == "log" ] ; then
+	mkdir 2.resp
+	cd 2.resp
+	antechamber -fi gout -i ../${LIGAND}.log -fo mol2 -o ${LIGAND}_resp.mol2 -c resp -rn LIG -s 2
+	cd ..
+elif [ $TYPE == "mol2" ] ; then
+	break
+else
+	echo "File type is neither .com nor .mol2... exiting"
+	exit
+fi
+
+# 3.Generating Amber topology .top and structure file .crd
+mkdir 3.amber_parameters
+cd 3.amber_parameters
+ln -s ../2.resp/${LIGAND}_resp.mol2
+# ln -s ../"$1"
+parmchk2 -f mol2 -i ${LIGAND}_resp.mol2 -o $LIGAND.frcmod
+# cp ../../files_top/leap.in .
+# sed s/LIGAND/"$LIGAND"/g ../../files_top/leap.in > leap.in
+cat > leap.in <<-LEAP_IN
+	source leaprc.gaff
+	LIG = loadmol2 ${LIGAND}_resp.mol2
+	loadamberparams ${LIGAND}.frcmod
+	check LIG
+	saveamberparm LIG ${LIGAND}_amber.top ${LIGAND}_amber.crd
+	quit
+LEAP_IN
+tleap -f leap.in
+cd ..
+
+# 4.Generating gromacs topology and gro file
+mkdir 4.gromac_parameters
+cd 4.gromac_parameters
+ln -s ../3.amber_parameters/${LIGAND}_amber.top
+ln -s ../3.amber_parameters/${LIGAND}_amber.crd
+acpype -p ${LIGAND}_amber.top -x ${LIGAND}_amber.crd -o gmx
+if [ -d LIG.amb2gmx ]; then RESDIR="LIG.amb2gmx" ; fi
+cd ..
+
+# 4bis.Generating posre_LIG.itp and modifying LIG_GMX.top into LIG.top to include posre_LIG.itp
+../prep_posre 4.gromac_parameters/$RESDIR/LIG_GMX.gro $LIGAND
+NB_LINES=`cat 4.gromac_parameters/$RESDIR/LIG_GMX.top  | wc -l`
+head -$(( ${NB_LINES} - 6)) 4.gromac_parameters/$RESDIR/LIG_GMX.top > $LIGAND.top
+cat >> $LIGAND.top <<-ADD_POSRE
+	; Include Position restraint file
+	#ifdef POSRES_LIG
+	#include "posre_$LIGAND.itp"
+	#endif
+ADD_POSRE
+tail -7 4.gromac_parameters/$RESDIR/LIG_GMX.top >> $LIGAND.top
+# ln -s 4.gromac_parameters/$RESDIR/LIG_GMX.gro $LIGAND.gro		# not using this gro file
+if [ -f 1.b3lyp_opt_esp/$LIGAND.pdb ] ; then
+	ln -s 1.b3lyp_opt_esp/$LIGAND.pdb
+else
+	echo "You need $LIGAND.pdb or $LIGAND.gro before running prep_sim_lig. "
+fi
+
