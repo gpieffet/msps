@@ -1,0 +1,17 @@
+#!/bin/bash
+
+if [ $# -ne 1 ] && [ $# -ne 2 ] ; then
+	CMD=`basename $0`
+	echo "Syntax: $CMD ResultRootName [nb]"
+	echo "(when docking results are of the form ResultRootName1.log, ResultRootName2.log...)"
+	exit
+fi
+
+
+if [ $# -eq 2 ] ; then
+	NB=$2
+else
+	NB=1
+fi
+
+for i in  ${1}?.log ; do tail -11  $i | head -$NB ; done

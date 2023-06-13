@@ -1,0 +1,31 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]; then
+	CMD=`basename $0`
+	echo "syntax: $CMD file.pdb/file.pdbqt"
+	exit
+fi
+
+BABEL=/usr/bin/obabel
+TYPE=`basename $1  | cut -d . -f2`
+
+if [ $TYPE == "pdbqt" ] ; then
+	echo -n "pdbqt file detected... converting to pdb and protonating... "
+	PDBFILE=`basename $1 .pdbqt`.pdb
+	$BABEL $1 -O $PDBFILE -h
+	echo "Done!"
+else
+	PDBFILE=$1
+	echo "pdb file detected: $PDBFILE"
+fi
+
+if [ `grep 'END$' $PDBFILE | wc -l` -gt 1 ] ; then
+	echo -n "Various END tag detected in $PDBFILE..... Fixing it... "
+	mv $PDBFILE ${PDBFILE}_old
+	grep -v 'END$' ${PDBFILE}_old > $PDBFILE
+	echo "END" >> $PDBFILE
+	echo " Done."
+	echo "Backed $PDBFILE as ${PDBFILE}_old"
+fi
+
+

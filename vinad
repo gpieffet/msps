@@ -1,0 +1,57 @@
+#!/bin/bash
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] ; then
+	CMD=`basename $0`
+	echo "Syntax: $CMD receptor.pdbqt ligand.pdbqt [param.conf] " 
+	echo ""
+	exit
+fi
+
+VINA=vina_1.1.2
+#VINA=`which vina`
+WORKDIR=`dirname $1`
+PROTEIN=`basename $1 .pdbqt`
+LIGAND=`basename $2 .pdbqt`
+EXHAUST=64  #(default = 8)
+CPU=16
+# DIR=exhaust-$EXHAUST
+# mkdir $DIR
+
+if ! [ -f $WORKDIR/${LIGAND}.pdbqt ] ; then cp $2 $WORKDIR ; fi 
+if ! [ "$WORKDIR" == "." ] ; then cd $WORKDIR ; fi
+touch ${PROTEIN}_${LIGAND}-EXHAUST-${EXHAUST}
+
+if ! [ -f $3 ]  && ! [ -f param.conf ]; then
+echo "File param.conf doesn't exist, creating it."
+cat > "$3" <<-PARAM
+	center_x=5.227
+	center_y=-5.912
+	center_z=25.065
+	
+	size_x=18
+	size_y=18
+	size_z=30
+	
+	exhaustiveness=$EXHAUST
+	num_modes=9
+	energy_range=5
+PARAM
+else
+	echo "File param.conf found, using it instead of default values."
+fi
+
+echo "Starting Docking of the $PROTEIN - $LIGAND complex."
+for i in {1..5} ; do
+	OUT=${PROTEIN}_${LIGAND}"-run${i}.pdbqt"
+	LOG=`basename $OUT .pdbqt`".log"
+	echo "Exhaust $EXHAUST: iteration nb = $i"
+	
+	# /usr/bin/time -o runtime$i.log \
+	$VINA	--receptor $PROTEIN.pdbqt \
+			--ligand $LIGAND.pdbqt \
+			--config "$3" \
+			--out $OUT \
+			--log $LOG \
+			--cpu $CPU &> progress_$EXHAUST.log
+done
+

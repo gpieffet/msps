@@ -1,0 +1,37 @@
+#!/bin/bash
+
+if [ $# -ne 2 ]; then
+	CMD=`basename $0`
+	echo "syntax: $CMD protein.pdb ligand.pdb"
+	exit
+fi
+
+PROTEIN=`basename $1`
+LIGANDS=`basename $2`
+ROOTDIR=`dirname $0`
+
+if ! [ -f $PROTEIN ] ; then cp $1 . ; fi
+if ! [ -f $LIGANDS ] ; then cp $2 . ; fi
+
+if [ `uname` == "Linux" ] ; then
+	VMD=vmd
+elif [ `uname` == "Darwin" ] ; then
+	VMD="/Applications/Science/VMD 1.9.4.app/Contents/Resources/VMD.app/Contents/MacOS/VMD"
+else
+	echo "No Linux and no Darwin? Going out of here!!!!"
+	exit
+fi
+
+sed s/PROTEIN/${PROTEIN}/g  $ROOTDIR/visual-docking.vmd | sed s/LIGAND/${LIGANDS}/g > temp.vmd
+"$VMD" -e  temp.vmd
+
+if [ "$1" != "$PROTEIN" ] ; then 
+#	rm $PROTEIN
+	echo "$1 and $PROTEIN are different, consider removing $PROTEIN"
+fi
+if [ "$2" != "$LIGANDS" ] ; then 
+#       rm $LIGANDS
+        echo "$1 and $LIGANDS are different, consider removing $LIGANDS"
+fi
+
+rm temp.vmd

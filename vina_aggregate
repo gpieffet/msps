@@ -1,0 +1,70 @@
+#!/bin/bash
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] ; then
+	CMD=`basename $0`
+	echo "Syntax: $CMD ResultRootName  output.pdb [nb]"
+	echo "(docking results of the form ResultRootName1.pdbqt, ResultRootName2.pdbqt...)"
+	echo "Combine the best docking structure(s) of several docking simulations"
+	echo ""
+	exit
+elif [ $# -eq 3 ] ; then
+	nstruct="$3"
+else
+	nstruct=1
+fi
+
+# Checking the presence of Babel 
+BABEL=`which obabel`
+if ! [ -f $BABEL ] ; then echo "Babel is not installed, you need babel to run the script." ; exit ; fi
+
+echo "" ; echo "Starting"
+OUTPUT=`basename "$2" .pdb`
+if [ -f "${OUTPUT}.pdbqt" ] ; then
+	echo "${OUTPUT}.pdbqt already exists.... Renaming to ${OUTPUT}_prev.pdbqt"
+	echo ""
+	mv ${OUTPUT}.pdbqt ${OUTPUT}_prev.pdbqt
+#	exit
+fi
+
+if ! [ -d "results-$OUTPUT" ] ; then
+	echo "Creating directory results-$OUTPUT"
+	mkdir results-$OUTPUT
+fi
+
+nsim=5		# nb of docking simulations
+isim=1		# index current docking simulation
+imod=1		# index current docking model within current docking simulation
+echo "Aggregating the $nstruct best pose(s) of each docking run to file ${OUTPUT}.pdbqt"
+
+# for i in {1..$nsim} ; do
+while [ $isim -le $nsim ] ; do
+	echo ""
+	echo "Processing $1$isim.pdbqt:"
+	vina_split --input "$1$isim.pdbqt"  --ligand results-$OUTPUT/result${isim}-
+	istruct=1
+	echo "istruct=$istruct and nstruct=$nstruct"
+	while [ ${istruct} -le ${nstruct} ] ; do 
+		echo "MODEL $imod" >> ${OUTPUT}.pdbqt
+		cat results-$OUTPUT/result${isim}-0${istruct}.pdbqt >> ${OUTPUT}.pdbqt
+#		cat results-$OUTPUT/result${isim}-${istruct}.pdbqt >> ${OUTPUT}.pdbqt
+		istruct=$(($istruct + 1))
+		imod=$(($imod + 1))
+		echo "ENDMDL" >> ${OUTPUT}.pdbqt
+	done
+	isim=$(($isim + 1))
+done
+echo ""
+echo "File ${OUTPUT}.pdbqt written."
+
+
+echo "Generating corresponding pdb file ${OUTPUT}.pdb"
+# grep -v BRANCH "$2" | grep -v ROOT | grep -v TORSDOF > "$PDBNAME"
+$BABEL ${OUTPUT}.pdbqt -O $OUTPUT.pdb -h
+if [ `grep 'END$' $OUTPUT.pdb   | wc -l` -gt 1 ] ; then
+	echo -n "Various END tag detected in $OUTPUT.pdb..... Fixing it... "
+	grep -v 'END$' $OUTPUT.pdb > $OUTPUT.pdb_tmp
+	echo "END" >> $OUTPUT.pdb_tmp
+	mv $OUTPUT.pdb_tmp $OUTPUT.pdb
+	echo "Done."
+fi
+

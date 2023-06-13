@@ -1,0 +1,80 @@
+#!/bin/bash 
+
+if [ $# -ne 2 ] && [ $# -ne 3 ] ; then
+	CMD=`basename $0`
+	echo "Syntax: $CMD protein ligand [nb_cluster]"
+	echo ""
+	exit
+fi
+
+# Checking the presence of Babel 
+BABEL=`which obabel`
+if ! [ -f $BABEL ] ; then echo "Babel is not installed, you need babel to run the script." ; exit ; fi
+
+# Set DOCK_DIR in the file prep_VAR 
+DOCK_DIR=`grep DOCK_DIR  prep_VAR | awk -F = '{print $2}' | head -1`
+PROTEIN=$1
+LIGAND=$2
+CUTOFF=0.40
+if [ $# -eq 3 ] ; then 
+	TARGET=$3 
+else 
+	TARGET=4 
+	echo "No nb of cluster specified, using default value of $TARGET" 
+fi
+DT=0.002			# Cutoff Timestep (0.02), decrease value if it doesn't converge
+ITERMAX=`echo "$CUTOFF / $DT * 2" | bc`
+
+
+if [ "$PWD" != "$DOCK_DIR/$PROTEIN" ] ; then
+	echo "We're not in $DOCK_DIR/$PROTEIN, going there now!"
+	cd "$DOCK_DIR/$PROTEIN"
+fi
+
+## Aggregate docking results:
+../vina_aggregate ${PROTEIN}_${LIGAND}-run ${PROTEIN}_${LIGAND} 9
+# - put the individual results (9 by default here) in a new directory i.e. results-$PROTEIN_$LIGAND
+# - generate a final result file with all the structures i.e. $PROTEIN_$LIGAND.pdb
+
+
+## Generate reference structure:
+obabel results-${PROTEIN}_${LIGAND}/result1-01.pdbqt -O results-${PROTEIN}_${LIGAND}/result1-01.pdb -h
+
+## Generate index file for performing the clustering in the cluster directory ie 1pq2_ligC_cluster:
+mkdir ${PROTEIN}_${LIGAND}_cluster
+cd ${PROTEIN}_${LIGAND}_cluster
+ln -s ../results-${PROTEIN}_${LIGAND}/result1-01.pdb
+printf "! a H*\n q\n" | gmx make_ndx -f result1-01.pdb
+
+## Clustering: generate the file with the clusters i.e  cluster.gro
+## Decrease the value of the cutoff if nb of cluster < 4
+NBCLUSTER=0
+ITER=0
+while [ $NBCLUSTER -ne $TARGET ] ; do
+if [ $ITER -gt $ITERMAX ]; then echo "No convergence, decrease timestep DT." ;  exit ; fi
+printf "3\n 0\n" | gmx cluster -f ../${PROTEIN}_${LIGAND}.pdb  -s result1-01.pdb -n -cl clusters.gro -nofit -cutoff $CUTOFF &> /dev/null
+echo "printf \"3\n 0\n\" | gmx cluster -f ../${PROTEIN}_${LIGAND}.pdb  -s result1-01.pdb -n -cl clusters.gro -nofit -cutoff $CUTOFF" > redo.txt
+echo "" >> redo.txt
+NBCLUSTER=`grep Found  cluster.log | awk '{print $2}' `
+ITER=$(($ITER + 1))
+echo "Iteration $ITER: cutoff = $CUTOFF"
+if [ $NBCLUSTER -gt $TARGET ] ; then
+	CUTOFF=`echo " $CUTOFF + $DT " | bc`
+	echo "Number of clusters ($NBCLUSTER) greater than $TARGET, increasing Cutoff value to $CUTOFF"
+	rm *gro *xpm *xvg *log
+elif [ $NBCLUSTER -lt $TARGET ] ; then
+	CUTOFF=`echo " $CUTOFF - $DT " | bc`
+	echo "Number of clusters ($NBCLUSTER) smaller than $TARGET, decreasing Cutoff value to $CUTOFF"
+	rm *gro *xpm *xvg *log
+else
+	echo "Number of clusters iqual to $TARGET.... target number of clusters reached."
+fi
+echo ""
+done
+
+## Separate the cluster structures from clusters.gro each into its own file ie. 1pq2_ligC-cc0.gro:
+printf "0\n" |  gmx trjconv -f clusters.gro -sep -o ${PROTEIN}_${LIGAND}-cc.gro -s result1-01.pdb
+echo "printf \"0\n\" |  gmx trjconv -f clusters.gro -sep -o ${PROTEIN}_${LIGAND}-cc.gro -s result1-01.pdb" >> redo.txt
+echo "Convergence reached: $TARGET clusters obtained after $ITER iterations."
+echo ""
+rm \#*
