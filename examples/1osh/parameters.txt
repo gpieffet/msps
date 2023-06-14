@@ -1,0 +1,4 @@
+protein_prepped
+spacing    1.000
+npts       20 16 30
+center     7.257 29.752 56.501

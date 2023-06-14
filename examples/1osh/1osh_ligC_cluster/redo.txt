@@ -1,0 +1,3 @@
+printf "3\n 0\n" | gmx cluster -f ../1osh_ligC.pdb  -s result1-01.pdb -n -cl clusters.gro -nofit -cutoff 0.40
+
+printf "0\n" |  gmx trjconv -f clusters.gro -sep -o 1osh_ligC-cc.gro -s result1-01.pdb

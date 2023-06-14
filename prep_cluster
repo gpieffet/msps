@@ -13,16 +13,24 @@ if ! [ -f $BABEL ] ; then echo "Babel is not installed, you need babel to run th
 
 # Set DOCK_DIR in the file prep_VAR 
 DOCK_DIR=`grep DOCK_DIR  prep_VAR | awk -F = '{print $2}' | head -1`
+
 PROTEIN=$1
 LIGAND=$2
-CUTOFF=0.40
+
 if [ $# -eq 3 ] ; then 
 	TARGET=$3 
 else 
 	TARGET=4 
 	echo "No nb of cluster specified, using default value of $TARGET" 
 fi
-DT=0.002			# Cutoff Timestep (0.02), decrease value if it doesn't converge
+
+# Change the cutoff value for the clustering algorithm here
+CUTOFF=0.40
+
+# Change Cutoff Timestep here (default is 0.02), decrease value if it doesn't converge
+DT=0.002			
+
+# Calculate max number of iterations expected
 ITERMAX=`echo "$CUTOFF / $DT * 2" | bc`
 
 
