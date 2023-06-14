@@ -62,7 +62,7 @@ $ vinad PROT.pdbqt LIG.pdbqt param.conf
 The interest of using the script *vinad* instead of vina directly is that it allows you to run multiple docking simulations with systematic naming of the result files. Running multiple docking simulations can be useful with vina du to its stochastic nature.  
 
 
-2/ Sort the docking results into clusters and select the center each cluster
+2/ Sort the docking results into a specific number of clusters and select the center of each cluster
 
 ```
 $ prep_cluster PROT LIG.pdb NB_CLUSTER
@@ -108,15 +108,32 @@ Run the simulation of the first cluster center cc0 of the protein - ligand compl
 #### Examples
 The cloned directory *msps* comes with an example to determine the cluster centers of docking results of the so-called ligand 7C with the progesterone receptor (PDB 1osh).
 
-Add *msps* to your PATH: 
+Add *msps* to your PATH:
 ```
+$ cd msps
+$ pwd
 $ export PATH="$PATH:path_of_msps"
 ```
 
 then:
 ```
 $ cd examples/
+```
+
+The directory *examples* contains the docking results of ligC with 1osh. 
+```
+$ ls 1osh
+```
+The directory *1osh* contains the results of 5 docking simulations, each with 9 poses.
+We set the variable **DOCK_DIR** in the file prep_VAR:
+```
 $ echo "DOCK_DIR=`pwd`" > prep_VAR
+```
+
+We request the classification of the all the 5*9 conformations into 4 clusters.
+```
 $ prep_cluster 1osh ligC 4
 ```
+The center structures of each of the 4 clusters are written to the file *1osh_ligC.pdb*.
+
 
