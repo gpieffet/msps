@@ -35,18 +35,18 @@ ITERMAX=`echo "$CUTOFF / $DT * 2" | bc`
 
 
 if [ "$PWD" != "$DOCK_DIR/$PROTEIN" ] ; then
-	echo "We're not in $DOCK_DIR/$PROTEIN, going there now!"
+	echo "Going to $DOCK_DIR/$PROTEIN."
 	cd "$DOCK_DIR/$PROTEIN"
 fi
 
 ## Aggregate docking results:
-../vina_aggregate ${PROTEIN}_${LIGAND}-run ${PROTEIN}_${LIGAND} 9
+vina_aggregate ${PROTEIN}_${LIGAND}-run ${PROTEIN}_${LIGAND} 9
 # - put the individual results (9 by default here) in a new directory i.e. results-$PROTEIN_$LIGAND
 # - generate a final result file with all the structures i.e. $PROTEIN_$LIGAND.pdb
 
 
 ## Generate reference structure:
-obabel results-${PROTEIN}_${LIGAND}/result1-01.pdbqt -O results-${PROTEIN}_${LIGAND}/result1-01.pdb -h
+$BABEL results-${PROTEIN}_${LIGAND}/result1-01.pdbqt -O results-${PROTEIN}_${LIGAND}/result1-01.pdb -h
 
 ## Generate index file for performing the clustering in the cluster directory ie 1pq2_ligC_cluster:
 mkdir ${PROTEIN}_${LIGAND}_cluster
@@ -85,4 +85,4 @@ printf "0\n" |  gmx trjconv -f clusters.gro -sep -o ${PROTEIN}_${LIGAND}-cc.gro 
 echo "printf \"0\n\" |  gmx trjconv -f clusters.gro -sep -o ${PROTEIN}_${LIGAND}-cc.gro -s result1-01.pdb" >> redo.txt
 echo "Convergence reached: $TARGET clusters obtained after $ITER iterations."
 echo ""
-rm \#*
+rm \#* 2> /dev/null

@@ -6,7 +6,11 @@ if [ $# -ne 1 ]; then
 	exit
 fi
 
-BABEL=/usr/bin/obabel
+# Checking the presence of Babel 
+#BABEL=/usr/bin/obabel
+BABEL=`which obabel`
+if ! [ -f $BABEL ] ; then echo "Babel is not installed, you need babel to run the script." ; exit ; fi
+
 TYPE=`basename $1  | cut -d . -f2`
 
 if [ $TYPE == "pdbqt" ] ; then

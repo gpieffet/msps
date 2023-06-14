@@ -106,9 +106,17 @@ Run the simulation of the first cluster center cc0 of the protein - ligand compl
 
 
 #### Examples
-The clone directory comes with an example to determine the cluster centers of docking results of the so-called ligand 7C with the progesterone receptor (PDB 1osh).
+The cloned directory *msps* comes with an example to determine the cluster centers of docking results of the so-called ligand 7C with the progesterone receptor (PDB 1osh).
+
+Add *msps* to your PATH: 
 ```
-$ cd examples/1osh
+$ export PATH="$PATH:path_of_msps"
+```
+
+then:
+```
+$ cd examples/
+$ echo "DOCK_DIR=`pwd`" > prep_VAR
 $ prep_cluster 1osh ligC 4
 ```
 
