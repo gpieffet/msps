@@ -11,8 +11,10 @@ fi
 BABEL=`which obabel`
 if ! [ -f $BABEL ] ; then echo "Babel is not installed, you need babel to run the script." ; exit ; fi
 
-# Set DOCK_DIR in the file prep_VAR 
-DOCK_DIR=`grep DOCK_DIR  prep_VAR | awk -F = '{print $2}' | head -1`
+# You first need to set DOCK_DIR in the file prep_VAR 
+BIN=`which prep_cluster`
+DIR=`dirname $BIN`
+DOCK_DIR=`grep DOCK_DIR  $DIR/prep_VAR | awk -F = '{print $2}' | head -1`
 
 PROTEIN=$1
 LIGAND=$2

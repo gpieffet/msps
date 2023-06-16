@@ -42,7 +42,7 @@ Note that the scripts expect the result files to be organized and named in a cer
 Clustering the docking results is done using the script *prep_cluster*:
 ```
 $ prep_cluster
-Syntax: ./prep_cluster protein ligand [nb_cluster]
+Syntax: prep_cluster protein ligand [nb_cluster]
 
 $ prep_cluster PROT LIG 4
 ```
@@ -115,22 +115,21 @@ $ pwd
 $ export PATH="$PATH:path_of_msps"
 ```
 
-then:
+The directory *examples/docking* contains the docking results of ligC with 1osh, therefore we set in the file prep_VAR the variable **DOCK_DIR** with that path:
 ```
-$ cd examples/
+$
+$ echo "DOCK_DIR=`pwd`/examples/docking" > prep_VAR
 ```
+Note that that the file *prep_VAR* must be inside the directory *msps*.
 
-The directory *examples* contains the docking results of ligC with 1osh. 
 ```
+$ cd examples/docking
 $ ls 1osh
 ```
-The directory *1osh* contains the results of 5 docking simulations, each with 9 poses.
-We set the variable **DOCK_DIR** in the file prep_VAR:
-```
-$ echo "DOCK_DIR=`pwd`" > prep_VAR
-```
+The directory *1osh* inside *examples* contains the results of 5 docking simulations, each with 9 poses.
 
-We request the classification of the all the 5*9 conformations into 4 clusters.
+
+We request the classification of the all the *5 x 9 = 45* conformations into 4 clusters.
 ```
 $ prep_cluster 1osh ligC 4
 ```
