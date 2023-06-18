@@ -15,6 +15,8 @@ $ git clone https://github.com/gpieffet/msps.git
 ```
 Then the easiest is probably to set your **PATH** to include the newly created directory *msps* containing the scripts:
 ```
+$ cd msps
+$ pwd								# copy the resulting path
 $ export PATH="$PATH:path_to_msps"
 ```
 
@@ -59,7 +61,7 @@ After preparing the ligand (for instance with gaussview) and the protein (for in
 ```
 $ vinad PROT.pdbqt LIG.pdbqt param.conf 
 ```
-The interest of using the script *vinad* instead of vina directly is that it allows you to run multiple docking simulations with systematic naming of the result files. Running multiple docking simulations can be useful with vina du to its stochastic nature.  
+The interest of using the script *vinad* instead of vina directly is that it allows you to run multiple docking simulations with systematic naming of the result files. Running multiple docking simulations can be useful since vina uses a stochastic approach.  
 
 
 2/ Sort the docking results into a specific number of clusters and select the center of each cluster
@@ -108,14 +110,14 @@ Run the simulation of the first cluster center cc0 of the protein - ligand compl
 #### Examples
 The cloned directory *msps* comes with an example to determine the cluster centers of docking results of the so-called ligand 7C with the progesterone receptor (PDB 1osh).
 
-Add *msps* to your PATH:
+If you haven't done it already, add the path to and including *msps* to your **PATH** variable:
 ```
 $ cd msps
 $ pwd
 $ export PATH="$PATH:path_of_msps"
 ```
 
-The directory *examples/docking* contains the docking results of ligC with 1osh, therefore we set in the file prep_VAR the variable **DOCK_DIR** with that path:
+The directory *examples/docking* contains the docking results of ligC with 1osh, therefore we set the variable **DOCK_DIR** with that path in the file prep_VAR:
 ```
 $
 $ echo "DOCK_DIR=`pwd`/examples/docking" > prep_VAR
@@ -129,10 +131,10 @@ $ ls 1osh
 The directory *1osh* inside *examples* contains the results of 5 docking simulations, each with 9 poses.
 
 
-We request the classification of the all the *5 x 9 = 45* conformations into 4 clusters.
+We request the classification of the all the *5 x 9 = 45* conformations into 4 clusters:
 ```
 $ prep_cluster 1osh ligC 4
 ```
-The center structures of each of the 4 clusters are written to the file *1osh_ligC.pdb*.
+The center structures of each of the 4 clusters are written to the file *1osh_ligC.pdb* and you can now use these ligand conformations as starting structure for the MD simulations of your protein - ligand complex.
 
 
