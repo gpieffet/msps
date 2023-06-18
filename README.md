@@ -2,7 +2,7 @@
 # Molecular System Preparation Scripts
 ***
 
-
+###### Latest vers. 18/06/2023
 
 #### Introduction
 This an ensemble of scripts designed to facilitate and speed up the setup of molecular dynamics simulations of small molecules, proteins and protein - ligand complexes. The scripts were written to work with the Gromacs simulation package and as such are probably only useful if gromacs is already installed. The scripts are high level so it doesn't matter which version of gromacs you're running providing it's > 5.x.
@@ -34,7 +34,8 @@ When using the scripts, you'll first have to set the variables ROOTDIR, FF_DIR, 
 #### Requirements
 Appart from gromacs, the following programs are also needed by some scripts:
 
- - babel/obabel for file format conversion
+ - babel/obabel for file format conversion 
+ 	- note: vers. 2.4 is advised, as from vers. 3.0 and up flags have changed and obabel desn't seem to be able to consistently generate reasonable protonated structures
  - vina and vina_split for running docking simulations
  - antechamber for generating ligand topology files (including RESP charges from QM calculations)
  - gmxMMPBSA for MM/P(G)BSA calculations
@@ -110,7 +111,7 @@ Run the simulation of the first cluster center cc0 of the protein - ligand compl
 #### Examples
 The cloned directory *msps* comes with an example to determine the cluster centers of docking results of the so-called ligand 7C with the progesterone receptor (PDB 1osh).
 
-If you haven't done it already, add the path to and including *msps* to your **PATH** variable:
+If you haven't done it already, add the path up to and including the directory *msps* to your variable **PATH**:
 ```
 $ cd msps
 $ pwd
@@ -131,7 +132,7 @@ $ ls 1osh
 The directory *1osh* inside *examples* contains the results of 5 docking simulations, each with 9 poses.
 
 
-We request the classification of the all the *5 x 9 = 45* conformations into 4 clusters:
+We request the classification of the all the *5 x 9 = 45* conformations of ligC into 4 clusters:
 ```
 $ prep_cluster 1osh ligC 4
 ```
